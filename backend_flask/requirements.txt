@@ -1,0 +1,10 @@
+flask
+flask-cors
+flask-sock
+opencv-python
+numpy
+pyserial
+mediapipe
+scikit-learn
+pandas
+protobuf

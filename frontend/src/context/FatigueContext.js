@@ -58,7 +58,7 @@ export const FatigueProvider = ({ children }) => {
         const fetchData = async () => {
             try {
                 // FETCH ONCE for the entire app!
-                const response = await fetch(`${API_BASE}/combined_data`, {
+                const response = await fetch(`${API_BASE}/api/combined_data`, {
                     headers: {
                         "ngrok-skip-browser-warning": "69420",
                         "Content-Type": "application/json"

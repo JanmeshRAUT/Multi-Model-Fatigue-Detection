@@ -14,7 +14,7 @@ class Config:
     USE_MOCK_DATA = False # Set to True to enable random data generation when sensors are disconnected
     
     # --- ML Engine Configuration ---
-    MODEL_PATH = os.path.join(os.path.dirname(__file__), "fatigue_model.pkl")
+    MODEL_PATH = os.path.join(os.path.dirname(__file__), "ml", "models", "fatigue_model.pkl")
     ML_INTERVAL = 0.5 # Seconds between ML predictions to prevent CPU overload
     
     # --- Logging / Debug ---

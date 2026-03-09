@@ -17,9 +17,14 @@ from cv.head_pose import cv_head_angles, cv_angles_lock
 from sensors.serial_reader import start_serial_thread, latest_sensor_data, sensor_data_history, head_position_data, calculate_head_position, sensor_lock, parse_raw_sensor_string
 from ml.ml_engine import MLEngine
 
+
 # Configure Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("FastAPI")
+
+import google.protobuf
+logger.info(f"🔍 Protobuf Version: {google.protobuf.__version__}")
+
 
 config = get_config()
 
@@ -32,13 +37,11 @@ ML_INTERVAL = config.ML_INTERVAL
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+
     logger.info("🚀 Starting FastAPI Server...")
     
-    # Initialize Serial Thread
     start_serial_thread()
     
-    # Initialize ML Engine
     global ml_engine
     try:
         ml_engine = MLEngine(model_path=config.MODEL_PATH)
@@ -48,12 +51,10 @@ async def lifespan(app: FastAPI):
     
     yield
     
-    # Shutdown
     logger.info("🛑 Stopping FastAPI Server...")
 
 app = FastAPI(lifespan=lifespan)
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -84,8 +85,6 @@ async def websocket_endpoint(websocket: WebSocket):
     logger.info("WebSocket Client Connected")
     # --- OPTIMIZATION: FRAME SKIPPING ---
     frame_counter = 0
-    PROCESS_EVERY_N_FRAMES = 3  # Analyze only 1 out of 3 frames (reduces load by ~66%)
-    
     try:
         while True:
             # Receive frame data
@@ -95,7 +94,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 continue
 
             frame_counter += 1
-            should_process = (frame_counter % PROCESS_EVERY_N_FRAMES == 0)
+            
+            # Analyze 4 out of 5 frames (80% sampling for high precision)
+            # This skips every 5th frame (Frames 5, 10, 15...) to give a tiny breathing room to CPU
+            should_process = (frame_counter % 5 != 0)
 
             if should_process:
                 # Decode Image only when needed

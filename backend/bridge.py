@@ -8,7 +8,7 @@ import traceback
 # --- CONFIGURATION ---
 ARDUINO_PORT = "COM6"
 BAUD_RATE = 115200
-BACKEND_URL = "https://fatigue-backend-40t1.onrender.com"  
+BACKEND_URL = "https://nulliporous-carbolic-lianne.ngrok-free.dev"  
 API_ENDPOINT = f"{BACKEND_URL}/sensor_data/ingest"  
 
 def find_arduino():

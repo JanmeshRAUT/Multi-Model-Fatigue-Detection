@@ -5,8 +5,8 @@ import os
 
 # ---------------- CONFIG ----------------
 FLASK_URL = "http://localhost:5000/combined_data"  # Flask backend
-SAVE_FILE = "auto_labeled_fatigue_dataset.csv"
-SAMPLE_INTERVAL = 2  # seconds between samples
+SAVE_FILE = "data/auto_labeled_fatigue_dataset.csv"
+SAMPLE_INTERVAL = 2  
 
 # ---------------- SETUP ----------------
 header = [
@@ -29,12 +29,7 @@ print("----------------------------------------\n")
 
 # ---------------- LABELING LOGIC ----------------
 def determine_label(temperature, hr, spo2, perclos, yawn_status):
-    """
-    Simple rule-based auto-labeling:
-    - Fatigued: High perclos or yawning
-    - Drowsy: Medium perclos, high HR, or high temperature
-    - Alert: Normal values
-    """
+
     try:
         temperature = float(temperature) if temperature else 0
         hr = float(hr) if hr else 0
