@@ -1,7 +1,8 @@
 import { useFatigueContext } from "../context/FatigueContext";
 
 export const useFatigueData = () => {
-    const { fullData } = useFatigueContext();
+    const context = useFatigueContext();
+    const { fullData } = context || {}; // Handle undefined context safely
 
     if (!fullData) {
         return {

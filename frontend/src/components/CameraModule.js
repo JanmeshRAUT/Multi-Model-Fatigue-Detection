@@ -5,16 +5,20 @@ import { useFatigueContext } from "../context/FatigueContext";
 import { API_BASE } from "../api";
 
 export default function CameraModule() {
-  // Use context to update global state from WebSocket data
-  const { setFullData } = useFatigueContext();
-  const data = useFatigueData(); // Still useful for reading current status for UI overlays
+  // Always call hooks unconditionally at top level (React Hooks Rules)
+  const contextData = useFatigueContext();
+  const data = useFatigueData();
+  
+  // Now safely check if context is available
+  const setFullData = contextData?.setFullData;
+  const hasContext = !!contextData && !!contextData.setFullData;
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const [cameraStatus, setCameraStatus] = useState("Idle");
   const wsRef = useRef(null);
 
-  const noFaceDetected = data.status === "No Face";
+  const noFaceDetected = data?.status === "No Face";
 
   useEffect(() => {
     let stream;
@@ -44,8 +48,8 @@ export default function CameraModule() {
         socket.onmessage = (event) => {
           try {
             const result = JSON.parse(event.data);
-            // Update the global context with the fresh data from backend
-            if (result) {
+            // Update the global context with the fresh data from backend (only if in FatigueProvider)
+            if (result && hasContext && setFullData) {
                 // Ensure status is active
                 setFullData({ ...result, status: "Active" });
             }

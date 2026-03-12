@@ -33,4 +33,26 @@ export const getCombinedData = async () => {
     }
 };
 
+// --- VEHICLE MODEL API ENDPOINTS ---
+
+export const getVehicleCombinedData = async () => {
+    try {
+        const response = await api.get('/api/vehicle/combined_data');
+        return response.data;
+    } catch (error) {
+        console.error("Error fetching vehicle data:", error);
+        return null;
+    }
+};
+
+export const resetVehicleCalibration = async () => {
+    try {
+        const response = await api.post('/api/vehicle/reset_calibration');
+        return response.data.status === "OK";
+    } catch (error) {
+        console.error("Error resetting vehicle calibration:", error);
+        return false;
+    }
+};
+
 export default api;

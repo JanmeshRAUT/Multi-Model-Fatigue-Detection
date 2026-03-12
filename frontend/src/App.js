@@ -10,7 +10,9 @@ import {
 
 // Context
 import { FatigueProvider } from "./context/FatigueContext";
+import { VehicleProvider, useVehicleContext } from "./context/VehicleContext";
 import { ThemeProvider } from "./context/ThemeContext";
+import { ModeProvider } from "./context/ModeContext";
 
 // Components
 import BodyTemperatureChart from "./components/BodyTemperatureChart";
@@ -21,10 +23,88 @@ import CameraModule from "./components/CameraModule";
 import FatigueStatus from "./components/FatigueStatus";
 import DrowsinessIndicators from "./components/DrowsinessIndicators";
 import ThemeToggle from "./components/ThemeToggle";
+import VehicleDashboard from "./components/VehicleDashboard";
 import { useFatigueData } from "./hooks/useFatigueData";
 
 // Wrapper Component to access Context for Theme
-const DashboardContent = () => {
+const StandardModelWithSwitcher = ({ selectedModel, setSelectedModel }) => {
+  return (
+    <DashboardContent selectedModel={selectedModel} setSelectedModel={setSelectedModel} />
+  );
+};
+
+// Vehicle Model Wrapper
+const VehicleModelWithSwitcher = ({ selectedModel, setSelectedModel }) => {
+  return (
+    <VehicleDashboardWithHeader selectedModel={selectedModel} setSelectedModel={setSelectedModel} />
+  );
+};
+
+// Vehicle Dashboard with Header
+const VehicleDashboardWithHeader = ({ selectedModel, setSelectedModel }) => {
+  const { vehicleData } = useVehicleContext();
+  
+  // Determine Theme Class based on vehicle prediction
+  const predictedStatus = vehicleData?.prediction?.status || "Unknown";
+  const themeClass = 
+    predictedStatus === "Fatigued" ? "theme-danger" : 
+    (predictedStatus === "Drowsy" ? "theme-warning" : "theme-safe");
+
+  return (
+    <div className={`dashboard-container ${themeClass}`}>
+      <header className="top-header">
+        <div className="brand">
+          <div className="brand-logo">
+            <BrainCircuit size={20} />
+          </div>
+          <span className="brand-name">FatigueGuard Pro</span>
+        </div>
+        
+        <div className="header-actions">
+          <div className="model-switcher">
+            <button
+              onClick={() => setSelectedModel("standard")}
+              className={`model-btn ${selectedModel === "standard" ? "model-btn-active" : ""}`}
+            >
+              <span className="model-icon">🧠</span>
+              <span className="model-text">Standard Model</span>
+            </button>
+            <button
+              onClick={() => setSelectedModel("vehicle")}
+              className={`model-btn ${selectedModel === "vehicle" ? "model-btn-active" : ""}`}
+            >
+              <span className="model-icon">🚗</span>
+              <span className="model-text">Vehicle Model</span>
+            </button>
+          </div>
+
+          <div className="status-badge">
+            <span className="live-dot"></span>
+            System Active
+          </div>
+          
+          <ThemeToggle />
+          
+          <div className="user-profile" style={{width: 32, height: 32, borderRadius: '50%', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
+            <User size={16} color="#64748b" />
+          </div>
+        </div>
+      </header>
+
+      <main className="dashboard-content">
+        <VehicleDashboard />
+      </main>
+    </div>
+  );
+};
+
+// Model Switcher Component (kept for reference, now integrated into header)
+const ModelSwitcher = ({ selectedModel, setSelectedModel }) => {
+  return null;
+};
+
+// Wrapper Component to access Context for Theme
+const DashboardContent = ({ selectedModel, setSelectedModel }) => {
   const { ml_fatigue_status } = useFatigueData(); 
   
   // Determine Theme Class
@@ -44,6 +124,23 @@ const DashboardContent = () => {
         </div>
         
         <div className="header-actions">
+          <div className="model-switcher">
+            <button
+              onClick={() => setSelectedModel("standard")}
+              className={`model-btn ${selectedModel === "standard" ? "model-btn-active" : ""}`}
+            >
+              <span className="model-icon">🧠</span>
+              <span className="model-text">Standard Model</span>
+            </button>
+            <button
+              onClick={() => setSelectedModel("vehicle")}
+              className={`model-btn ${selectedModel === "vehicle" ? "model-btn-active" : ""}`}
+            >
+              <span className="model-icon">🚗</span>
+              <span className="model-text">Vehicle Model</span>
+            </button>
+          </div>
+
            {/* Moved Indicator Here as requested */}
            <div style={{marginRight: '12px'}}>
               <DrowsinessIndicators />
@@ -140,6 +237,7 @@ const DashboardContent = () => {
 
 function App() {
   const [mounted, setMounted] = useState(false);
+  const [selectedModel, setSelectedModel] = useState("standard"); // "standard" or "vehicle"
 
   useEffect(() => {
     setMounted(true);
@@ -148,12 +246,28 @@ function App() {
   if (!mounted) return null;
 
   return (
-      <ThemeProvider>
-        <FatigueProvider>
-            <DashboardContent />
-        </FatigueProvider>
-      </ThemeProvider>
+    <ThemeProvider>
+      <ModeProvider selectedMode={selectedModel}>
+        {selectedModel === "vehicle" ? (
+          // Vehicle Model (Standard Model is COMPLETELY DISABLED)
+          <VehicleProvider>
+            <VehicleModelWithSwitcher 
+              selectedModel={selectedModel} 
+              setSelectedModel={setSelectedModel} 
+            />
+          </VehicleProvider>
+        ) : (
+          // Standard Fatigue Model (Vehicle Model is COMPLETELY DISABLED)
+          <FatigueProvider>
+            <StandardModelWithSwitcher 
+              selectedModel={selectedModel} 
+              setSelectedModel={setSelectedModel} 
+            />
+          </FatigueProvider>
+        )}
+      </ModeProvider>
+    </ThemeProvider>
   );
-}
+};
 
 export default App;

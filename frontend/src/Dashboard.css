@@ -65,11 +65,72 @@
   transition: color 0.3s ease;
 }
 
-.header-actions { display: flex; align-items: center; gap: 16px; }
+.header-actions { 
+  display: flex; 
+  align-items: center; 
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* Model Switcher */
+.model-switcher {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.model-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  transition: all 0.25s ease;
+  white-space: nowrap;
+}
+
+.model-btn:hover {
+  background: var(--bg-surface-subtle);
+  color: var(--text-main);
+}
+
+.model-btn-active {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white !important;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+}
+
+.model-btn-active:hover {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+}
+
+.model-icon {
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+}
+
+.model-text {
+  font-weight: 600;
+  letter-spacing: -0.3px;
+}
 
 /* Status Badge - Pill Style */
 .status-badge {
-  display: inline-flex; align-items: center; gap: 8px;
+  display: inline-flex; 
+  align-items: center; 
+  gap: 8px;
   padding: 6px 14px;
   background: var(--bg-surface);
   border: 1px solid var(--border-light);
@@ -79,6 +140,7 @@
   color: var(--text-muted);
   box-shadow: 0 1px 2px rgba(0,0,0,0.02);
   transition: all 0.3s ease;
+  white-space: nowrap;
 }
 .live-dot {
   width: 8px; height: 8px;
@@ -325,6 +387,54 @@
     height: 200px; /* Fixed height for charts on mobile */
   }
 
+  /* Responsive Model Switcher */
+  .model-switcher {
+    order: -1; /* Place it first in flex order */
+    width: 100%;
+    gap: 4px;
+    padding: 4px;
+  }
+
+  .model-btn {
+    flex: 1;
+    padding: 6px 8px;
+    font-size: 0.75rem;
+    gap: 4px;
+  }
+
+  .model-text {
+    display: none; /* Hide text on mobile, keep icon */
+  }
+
+  .top-header {
+    flex-wrap: wrap;
+    padding: 0 16px;
+    gap: 0;
+    min-height: 120px;
+  }
+
+  .header-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+/* Tablet Responsive */
+@media (max-width: 1024px) {
+  .model-btn-active {
+    box-shadow: 0 1px 4px rgba(59, 130, 246, 0.2);
+  }
+
+  .model-switcher {
+    gap: 4px;
+    padding: 5px;
+  }
+
+  .model-btn {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+  }
+
   /* Camera Card */
   .camera-card {
     height: auto;
@@ -363,5 +473,15 @@
   /* TALLER CHARTS FOR TOUCH */
   .chart-body-fill {
       height: 240px; /* Increased from 200px for better visibility */
+  }
+}
+
+/* Spinner Animation for Loading States */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
   }
 }

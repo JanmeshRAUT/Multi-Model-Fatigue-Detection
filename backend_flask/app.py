@@ -15,6 +15,7 @@ from cv.perclos import process_face_mesh, perclos_data, reset_eye_calibration
 from cv.head_pose import cv_head_angles, cv_angles_lock
 from sensors.serial_reader import start_serial_thread, latest_sensor_data, sensor_data_history, head_position_data, calculate_head_position, sensor_lock, parse_raw_sensor_string
 from ml.ml_engine import MLEngine
+from ml.vehicle_ml_engine import VehicleMLEngine
 
 # Configure Logging
 logging.basicConfig(level=logging.INFO)
@@ -31,23 +32,34 @@ sock = Sock(app)
 
 # Global ML Engine
 ml_engine = None
+vehicle_ml_engine = None
 ml_lock = threading.Lock()
+vehicle_ml_lock = threading.Lock()
 last_ml_time = 0
+last_vehicle_ml_time = 0
 cached_prediction = {"status": "Waiting...", "confidence": 0.0}
+cached_vehicle_prediction = {"status": "Waiting...", "confidence": 0.0}
 ML_INTERVAL = config.ML_INTERVAL
 
 # Startup Logic (Manual)
 def initialize_systems():
-    global ml_engine
+    global ml_engine, vehicle_ml_engine
     logger.info("🚀 Starting Flask Server Systems...")
     # Initialize Serial Thread
     start_serial_thread()
-    # Initialize ML Engine
+    # Initialize ML Engine (Standard Fatigue Model)
     try:
         ml_engine = MLEngine(model_path=config.MODEL_PATH)
         logger.info("✅ ML Engine Initialized")
     except Exception as e:
         logger.error(f"❌ Failed to initialize ML Engine: {e}")
+    
+    # Initialize Vehicle ML Engine (Vision-Only Model)
+    try:
+        vehicle_ml_engine = VehicleMLEngine(model_path=config.VEHICLE_MODEL_PATH)
+        logger.info("✅ Vehicle ML Engine Initialized")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize Vehicle ML Engine: {e}")
 
 # Call init immediately or lazily. 
 # For Flask dev server, this might run twice if reloader is on, but that's acceptable for dev.
@@ -168,6 +180,89 @@ def get_combined_data_internal():
         "system_status": "Initializing" if is_calibrating else "Active"
     }
 
+# --- VEHICLE MODEL DATA (VISION-ONLY) ---
+def get_vehicle_combined_data_internal():
+    """
+    Vehicle Model - Vision-Only (No Psychological Sensors)
+    Uses only: Head Position, Camera, Perclos, Yawning
+    """
+    global last_vehicle_ml_time, cached_vehicle_prediction
+    
+    hp = {
+        "position": "Unknown",
+        "angle_x": 0.0,
+        "angle_y": 0.0,
+        "angle_z": 0.0,
+        "timestamp": int(time.time()),
+        "source": "Vision"
+    }
+    
+    current_time = time.time()
+    
+    # HEAD POSE FROM VISION ONLY
+    with cv_angles_lock:
+        c_pitch = cv_head_angles["pitch"]
+        c_yaw = cv_head_angles["yaw"]
+        c_roll = cv_head_angles["roll"]
+        
+        v_label = ""
+        if c_pitch > 10: v_label = "Down"
+        elif c_pitch < -10: v_label = "Up"
+        
+        h_label = ""
+        if c_yaw > 10: h_label = "Right"
+        elif c_yaw < -10: h_label = "Left"
+        
+        pos_label = f"{v_label} {h_label}".strip()
+        if not pos_label: pos_label = "Center"
+
+        hp = {
+            "position": pos_label,
+            "angle_x": round(c_pitch, 2),
+            "angle_y": round(c_yaw, 2),
+            "angle_z": round(c_roll, 2),
+            "timestamp": int(time.time()),
+            "source": "Vision",
+            "calibrated": cv_head_angles.get("is_calibrated", False)
+        }
+
+    # ML PREDICTION (VEHICLE MODEL)
+    prediction_result = cached_vehicle_prediction
+    is_calibrating = perclos_data.get("is_calibrating", False)
+    
+    if is_calibrating:
+        prediction_result = {"status": "Initializing...", "confidence": 0.0}
+    
+    # Check ML Interval
+    if (current_time - last_vehicle_ml_time) > ML_INTERVAL and not is_calibrating and vehicle_ml_engine:
+        with vehicle_ml_lock:
+            if (time.time() - last_vehicle_ml_time) > ML_INTERVAL:
+                # Vehicle model uses ONLY vision data
+                vision_input = {
+                    "ear": perclos_data.get("ear", 0.3),
+                    "mar": perclos_data.get("mar", 0.0),
+                    "pitch": hp["angle_x"],
+                    "yaw": hp["angle_y"],
+                    "roll": hp["angle_z"],
+                    "perclos": perclos_data.get("perclos_value", 0.0),
+                    "status": perclos_data.get("status", "Unknown")
+                }
+                
+                prediction_result = vehicle_ml_engine.predict(vision_input)
+                cached_vehicle_prediction = prediction_result
+                last_vehicle_ml_time = time.time()
+
+    return {
+        "vision": {
+            "perclos": perclos_data,
+            "head_position": hp
+        },
+        "prediction": prediction_result,
+        "server_time": int(time.time()),
+        "model_type": "Vehicle",
+        "system_status": "Initializing" if is_calibrating else "Active"
+    }
+
 # --- WEB SOCKET ENDPOINT ---
 @sock.route('/ws/detect')
 def websocket_endpoint(ws):
@@ -221,10 +316,67 @@ def websocket_endpoint(ws):
     finally:
         logger.info("WebSocket Client Disconnected")
 
+# --- VEHICLE MODEL WEBSOCKET ENDPOINT ---
+@sock.route('/ws/vehicle/detect')
+def vehicle_websocket_endpoint(ws):
+    logger.info("Vehicle WebSocket Client Connected")
+    frame_counter = 0
+    PROCESS_EVERY_N_FRAMES = 3
+    
+    try:
+        while True:
+            # Receive frame data (blocking call in this thread)
+            raw_data = ws.receive()
+            if not raw_data:
+                break
+                
+            try:
+                data = json.loads(raw_data)
+            except json.JSONDecodeError:
+                continue
+            
+            if "image_data" not in data:
+                continue
+
+            frame_counter += 1
+            should_process = (frame_counter % PROCESS_EVERY_N_FRAMES == 0)
+
+            if should_process:
+                # Decode Image
+                try:
+                    base64_string = data['image_data'].split(',')[1]
+                    frame_bytes = base64.b64decode(base64_string)
+                    np_arr = np.frombuffer(frame_bytes, np.uint8)
+                    frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+                    
+                    if frame is not None:
+                        frame = cv2.flip(frame, 1)
+                        # Process Perclos + Head Pose
+                        process_face_mesh(frame)
+                        
+                except Exception as e:
+                    logger.error(f"Error processing frame in Vehicle WS: {e}")
+            
+            # Get Vehicle Model Data
+            response_data = get_vehicle_combined_data_internal()
+            
+            # Send back
+            ws.send(json.dumps(response_data))
+                
+    except Exception as e:
+        logger.error(f"Vehicle WebSocket Error: {e}") 
+    finally:
+        logger.info("Vehicle WebSocket Client Disconnected")
+
 # --- REST ENDPOINTS ---
 @app.route("/api/combined_data", methods=['GET'])
 def get_combined_data():
     return jsonify(get_combined_data_internal())
+
+@app.route("/api/vehicle/combined_data", methods=['GET'])
+def get_vehicle_combined_data():
+    """Vehicle Model Endpoint - Vision Only"""
+    return jsonify(get_vehicle_combined_data_internal())
 
 @app.route("/api/sensor_data", methods=['GET'])
 def get_sensor_data():
@@ -242,10 +394,24 @@ def reset_calibration_endpoint():
         with ml_lock:
             if ml_engine:
                 ml_engine.reset_calibration()
-            reset_eye_calibration()
-            with cv_angles_lock:
-                 cv_head_angles["is_calibrated"] = False
+                reset_eye_calibration()
+                with cv_angles_lock:
+                    cv_head_angles["is_calibrated"] = False
         return jsonify({"message": "Calibration reset successfully", "status": "OK"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/vehicle/reset_calibration", methods=['POST'])
+def vehicle_reset_calibration_endpoint():
+    """Reset calibration for Vehicle Model"""
+    try:
+        with vehicle_ml_lock:
+            if vehicle_ml_engine:
+                vehicle_ml_engine.reset_calibration()
+                reset_eye_calibration()
+                with cv_angles_lock:
+                    cv_head_angles["is_calibrated"] = False
+        return jsonify({"message": "Vehicle calibration reset successfully", "status": "OK"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

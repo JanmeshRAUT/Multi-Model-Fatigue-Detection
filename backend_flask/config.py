@@ -15,6 +15,7 @@ class Config:
     
     # --- ML Engine Configuration ---
     MODEL_PATH = os.path.join(os.path.dirname(__file__), "ml", "models", "fatigue_model.pkl")
+    VEHICLE_MODEL_PATH = os.path.join(os.path.dirname(__file__), "ml", "models", "vehicle_fatigue_model.pkl")
     ML_INTERVAL = 0.5 # Seconds between ML predictions to prevent CPU overload
     
     # --- Logging / Debug ---

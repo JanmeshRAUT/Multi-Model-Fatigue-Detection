@@ -2,6 +2,7 @@ import React, { useRef } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { RoundedBox, Environment, ContactShadows } from "@react-three/drei";
 import { useHeadPosition } from "../hooks/useHeadPosition";
+import { useSmoothHeadPosition } from "../hooks/useSmoothHeadPosition";
 import { useFatigueData } from "../hooks/useFatigueData";
 import "./Css/HeadPositionChart.css";
 
@@ -10,12 +11,17 @@ function HeadModel({ angles, fatigueStatus, source }) {
   
   useFrame(() => {
     if (group.current) {
+        // Use x, y, z from smooth animation (work for both modes)
+        const angleX = angles?.x ?? 0;
+        const angleY = angles?.y ?? 0;
+        const angleZ = angles?.z ?? 0;
+        
         // Reverse Up/Down (Pitch) for Sensor as requested
-        const finalPitch = source === "Sensor" ? -angles.x : angles.x;
+        const finalPitch = source === "Sensor" ? -angleX : angleX;
 
         const radX = (finalPitch * Math.PI) / 180;
-        const radY = (-angles.y * Math.PI) / 180;
-        const radZ = (-angles.z * Math.PI) / 180;
+        const radY = (-angleY * Math.PI) / 180;
+        const radZ = (-angleZ * Math.PI) / 180;
         group.current.rotation.set(radX, radY, radZ, 'YXZ');
     }
   });
@@ -61,9 +67,27 @@ function HeadModel({ angles, fatigueStatus, source }) {
   );
 }
 
-export default function HeadPositionChart() {
-  const { position, angle_x, angle_y, angle_z, source, calibrated } = useHeadPosition();
-  const { ml_fatigue_status } = useFatigueData();
+export default function HeadPositionChart({ data = null }) {
+  const contextData = useHeadPosition();
+  const fatigueData = useFatigueData();
+  
+  // Vehicle Mode: use last data point from history array for smooth animation
+  const vehicleModeTargetAngles = data && data.length > 0 ? data[data.length - 1] : null;
+  
+  // Apply smooth animation to Vehicle Mode data
+  const vehicleSmoothed = useSmoothHeadPosition(vehicleModeTargetAngles);
+  
+  // Use Vehicle smoothed data if in Vehicle Mode, otherwise use standard mode
+  const angleData = vehicleModeTargetAngles ? vehicleSmoothed : contextData;
+    
+  const position = angleData?.position || "Center";
+  const angle_x = angleData?.x ?? contextData?.x ?? 0;
+  const angle_y = angleData?.y ?? contextData?.y ?? 0;
+  const angle_z = angleData?.z ?? contextData?.z ?? 0;
+  const source = angleData?.source || "None";
+  const calibrated = angleData?.calibrated ?? true;
+  
+  const { ml_fatigue_status } = fatigueData;
   
   const showCalibration = source === "Vision (Fallback)" && calibrated === false;
   const isInitializing = source === "None" || source === "Unknown";

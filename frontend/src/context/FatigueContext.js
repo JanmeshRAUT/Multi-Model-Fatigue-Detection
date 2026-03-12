@@ -51,9 +51,10 @@ export const FatigueProvider = ({ children }) => {
 
     }, [fullData]);
 
-    // ---------------- POLLING LOOP ----------------
+    // ---------------- POLLING LOOP (Only when Standard Mode is active) ----------------
     useEffect(() => {
         let isMounted = true;
+        let interval;
 
         const fetchData = async () => {
             try {
@@ -81,12 +82,13 @@ export const FatigueProvider = ({ children }) => {
             }
         };
 
-        // Poll at 500ms (2Hz) - Good balance for Head Pose smoothness & Data Freshness
-        const interval = setInterval(fetchData, 500); 
+        // Start polling immediately
+        fetchData();
+        interval = setInterval(fetchData, 500);
 
         return () => {
              isMounted = false;
-             clearInterval(interval);
+             if (interval) clearInterval(interval);
         };
     }, []);
 

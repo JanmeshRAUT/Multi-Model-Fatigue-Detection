@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import { useFatigueContext } from "../context/FatigueContext";
 
 export const useHeadPosition = () => {
-    const { fullData } = useFatigueContext();
+    const context = useFatigueContext();
+    const fullData = context?.fullData || {};
 
     // Target values from Context
     const targetX = fullData?.head_position?.angle_x || 0;
