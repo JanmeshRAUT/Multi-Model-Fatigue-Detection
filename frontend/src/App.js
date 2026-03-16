@@ -327,7 +327,7 @@ function App() {
     <ThemeProvider>
       <ModeProvider selectedMode={selectedModel === "owner" ? "standard" : selectedModel}>
         {selectedModel === "vehicle" ? (
-          <VehicleProvider>
+          <VehicleProvider autoResetCalibration>
             <VehicleModelWithSwitcher
               selectedModel={selectedModel}
               setSelectedModel={setSelectedModel}

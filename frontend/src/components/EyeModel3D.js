@@ -205,9 +205,23 @@ export default function EyeModel3D({
   const safeEyeState = typeof eyeState === "string" ? eyeState : "Open";
   const safeYaw = typeof yaw === "number" ? yaw : 0;
   const safePitch = typeof pitch === "number" ? pitch : 0;
+  const riskTone = safeStatus === "Fatigued" ? "danger" : safeStatus === "Drowsy" ? "warning" : "safe";
 
   return (
     <div className="eye-model-container">
+      <div className="eye-model-hud">
+        <div className="eye-model-heading">EYE BEHAVIOUR MODEL</div>
+        <div className="eye-model-badges">
+          <span className={`eye-model-badge tone-${riskTone}`}>{safeStatus}</span>
+          <span className="eye-model-badge tone-neutral">Eyes: {safeEyeState}</span>
+          <span className="eye-model-badge tone-neutral">PERCLOS {safePerclos.toFixed(1)}%</span>
+          <span className="eye-model-badge tone-neutral">EAR {safeEar.toFixed(2)}</span>
+        </div>
+      </div>
+
+      <div className="eye-model-axis-label eye-model-axis-top">Pitch {safePitch.toFixed(0)}°</div>
+      <div className="eye-model-axis-label eye-model-axis-right">Yaw {safeYaw.toFixed(0)}°</div>
+
       <Canvas camera={{ position: [0, 0, 4], fov: 50 }} style={{ width: "100%", height: "100%" }}>
         <ambientLight intensity={0.5} />
         <spotLight position={[10, 10, 10]} angle={0.2} penumbra={1} intensity={1} castShadow />

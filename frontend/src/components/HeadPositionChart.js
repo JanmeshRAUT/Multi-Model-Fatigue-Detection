@@ -4,6 +4,7 @@ import { RoundedBox, Environment, ContactShadows } from "@react-three/drei";
 import { useHeadPosition } from "../hooks/useHeadPosition";
 import { useSmoothHeadPosition } from "../hooks/useSmoothHeadPosition";
 import { useFatigueData } from "../hooks/useFatigueData";
+import { useVehicleContext } from "../context/VehicleContext";
 import "./Css/HeadPositionChart.css";
 
 function HeadModel({ angles, fatigueStatus, source }) {
@@ -70,6 +71,7 @@ function HeadModel({ angles, fatigueStatus, source }) {
 export default function HeadPositionChart({ data = null }) {
   const contextData = useHeadPosition();
   const fatigueData = useFatigueData();
+    const vehicleContext = useVehicleContext();
 
     const getAngle = (obj, key) => {
         if (!obj) return undefined;
@@ -94,18 +96,20 @@ export default function HeadPositionChart({ data = null }) {
     const angle_z = getAngle(angleData, "z") ?? getAngle(contextData, "z") ?? 0;
   const source = angleData?.source || "None";
   const calibrated = angleData?.calibrated ?? true;
+    const isVehicleChart = Boolean(vehicleModeTargetAngles);
   
   const { ml_fatigue_status } = fatigueData;
   
-  const showCalibration = source === "Vision (Fallback)" && calibrated === false;
+    const isVisionSource = source === "Vision (Fallback)" || source === "Vision";
+    const showCalibration = isVisionSource && calibrated === false;
   const isInitializing = source === "None" || source === "Unknown";
-  const noFaceFound = ml_fatigue_status === "Unknown" && source === "Vision (Fallback)" && position === "Unknown" && calibrated === true;
+    const noFaceFound = ml_fatigue_status === "Unknown" && isVisionSource && position === "Unknown" && calibrated === true;
 
   // Track if sound has played for this calibration cycle
   const hasPlayedCalibrationSound = React.useRef(false);
 
   React.useEffect(() => {
-    if (source === "Vision (Fallback)" && calibrated === true) {
+    if (isVisionSource && calibrated === true) {
         if (!hasPlayedCalibrationSound.current) {
             try {
                 const audio = new Audio("/sounds/correct-356013.mp3");
@@ -120,7 +124,7 @@ export default function HeadPositionChart({ data = null }) {
         // Reset whenever calibration is lost or reset
         hasPlayedCalibrationSound.current = false;
     }
-  }, [calibrated, source]);
+    }, [calibrated, isVisionSource]);
   
   const isSafe = Math.abs(angle_x) < 20 && Math.abs(angle_y) < 30 && Math.abs(angle_z) < 20;
   const statusColor = isSafe ? "#10b981" : "#ef4444";
@@ -140,6 +144,11 @@ export default function HeadPositionChart({ data = null }) {
                 className="head-reset-button"
                 onClick={async (e) => {
                     e.stopPropagation();
+                    if (isVehicleChart && vehicleContext?.resetCalibration) {
+                        await vehicleContext.resetCalibration();
+                        return;
+                    }
+
                     const { resetCalibration } = await import("../api");
                     await resetCalibration();
                 }}
@@ -149,7 +158,7 @@ export default function HeadPositionChart({ data = null }) {
             </button> 
 
             <div className="head-source-badge">
-                {source === "Vision (Fallback)" ? "VISION" : (source === "Sensor" ? "SENSOR" : "NONE")}
+                {isVisionSource ? "VISION" : (source === "Sensor" ? "SENSOR" : "NONE")}
             </div>
         </div>
 

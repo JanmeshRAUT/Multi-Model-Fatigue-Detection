@@ -23,6 +23,21 @@
   overflow: hidden;
 }
 
+[data-theme="dark"] .vehicle-ops-shell {
+  --vehicle-bg-a: rgba(37, 99, 235, 0.14);
+  --vehicle-bg-b: #0f172a;
+  --vehicle-border: #334155;
+  --vehicle-panel: #111827;
+  --vehicle-panel-soft: #172033;
+  --vehicle-text: #e2e8f0;
+  --vehicle-muted: #94a3b8;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(37, 99, 235, 0.18) 0%, transparent 34%),
+    radial-gradient(circle at 100% 0%, rgba(14, 165, 233, 0.12) 0%, transparent 36%),
+    linear-gradient(180deg, #0f172a 0%, #111827 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
+}
+
 .vehicle-content {
   overflow: auto;
   min-height: 0;
@@ -105,7 +120,7 @@
 
 .vehicle-panel-header {
   padding: 10px 12px;
-  border-bottom: 1px solid #e1e9f2;
+  border-bottom: 1px solid color-mix(in srgb, var(--vehicle-border) 88%, transparent 12%);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -144,6 +159,11 @@
   background: linear-gradient(135deg, #f2f6fb 0%, #e6edf6 100%);
   border: 1px solid #d6e2ee;
   border-radius: 10px;
+}
+
+[data-theme="dark"] .vehicle-eye-body {
+  background: linear-gradient(135deg, #0f172a 0%, #162133 100%);
+  border-color: #334155;
 }
 
 .vehicle-chip {
@@ -201,7 +221,7 @@
 }
 
 .vehicle-confidence-trend {
-  border: 1px solid #dce7f3;
+  border: 1px solid color-mix(in srgb, var(--vehicle-border) 88%, transparent 12%);
   border-radius: 9px;
   padding: 7px;
   background:
@@ -212,7 +232,7 @@
       transparent 1px,
       transparent 16px
     ),
-    linear-gradient(180deg, #fbfdff 0%, #f2f7fc 100%);
+    linear-gradient(180deg, color-mix(in srgb, var(--vehicle-panel) 94%, white 6%) 0%, color-mix(in srgb, var(--vehicle-panel-soft) 96%, white 4%) 100%);
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: minmax(7px, 1fr);
@@ -250,7 +270,7 @@
   justify-content: space-between;
   align-items: center;
   gap: 8px;
-  color: #334155;
+  color: var(--vehicle-muted);
   font-size: 0.67rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -259,12 +279,12 @@
 
 .vehicle-signal-head strong {
   font-size: 0.7rem;
-  color: #0f172a;
+  color: var(--vehicle-text);
   font-weight: 800;
 }
 
 .vehicle-risk-trend {
-  border: 1px solid #dce7f3;
+  border: 1px solid color-mix(in srgb, var(--vehicle-border) 88%, transparent 12%);
   border-radius: 9px;
   padding: 7px;
   background:
@@ -275,7 +295,7 @@
       transparent 1px,
       transparent 14px
     ),
-    linear-gradient(180deg, #fafdff 0%, #f3f8fd 100%);
+    linear-gradient(180deg, color-mix(in srgb, var(--vehicle-panel) 94%, white 6%) 0%, color-mix(in srgb, var(--vehicle-panel-soft) 96%, white 4%) 100%);
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: minmax(7px, 1fr);
@@ -286,15 +306,15 @@
 }
 
 .vehicle-ops-note {
-  border: 1px dashed #d8e3ef;
+  border: 1px dashed color-mix(in srgb, var(--vehicle-border) 88%, transparent 12%);
   border-radius: 8px;
-  background: #f8fbff;
+  background: color-mix(in srgb, var(--vehicle-panel) 92%, white 8%);
   padding: 7px 9px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 10px;
-  color: #64748b;
+  color: var(--vehicle-muted);
   font-size: 0.64rem;
   font-weight: 700;
   letter-spacing: 0.03em;
@@ -316,7 +336,7 @@
   align-items: center;
   justify-content: center;
   text-align: center;
-  color: #8ea1b7;
+  color: var(--vehicle-muted);
 }
 
 .vehicle-empty .spinner {

@@ -11,7 +11,7 @@ export const useVehicleContext = () => {
     return context;
 };
 
-export const VehicleProvider = ({ children }) => {
+export const VehicleProvider = ({ children, autoResetCalibration = false }) => {
     // Centralized state for Vehicle Mode
     const [vehicleData, setVehicleData] = useState(null);
     const [headPositionHistory, setHeadPositionHistory] = useState([]);
@@ -34,6 +34,28 @@ export const VehicleProvider = ({ children }) => {
             sensor,
         };
     };
+
+    const resetCalibration = async () => {
+        try {
+            const response = await fetch(`${API_BASE}/api/vehicle/reset_calibration`, {
+                method: 'POST',
+                headers: {
+                    "ngrok-skip-browser-warning": "69420",
+                    "Content-Type": "application/json"
+                }
+            });
+            return response.ok;
+        } catch (error) {
+            console.error("[VehicleContext] Reset Error:", error);
+            return false;
+        }
+    };
+
+    useEffect(() => {
+        if (!autoResetCalibration) return;
+
+        resetCalibration();
+    }, [autoResetCalibration]);
 
     // Update history when data arrives
     useEffect(() => {
@@ -130,23 +152,6 @@ export const VehicleProvider = ({ children }) => {
             clearInterval(interval);
         };
     }, []);
-
-    // Helper: Reset Calibration
-    const resetCalibration = async () => {
-        try {
-            const response = await fetch(`${API_BASE}/api/vehicle/reset_calibration`, {
-                method: 'POST',
-                headers: {
-                    "ngrok-skip-browser-warning": "69420",
-                    "Content-Type": "application/json"
-                }
-            });
-            return response.ok;
-        } catch (error) {
-            console.error("[VehicleContext] Reset Error:", error);
-            return false;
-        }
-    };
 
     const value = {
         // Data

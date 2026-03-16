@@ -184,18 +184,32 @@ class VehicleMLEngine:
         else:
             self.ema_probs = self.alpha * probs + (1 - self.alpha) * self.ema_probs
 
-        new_state = int(np.argmax(self.ema_probs))
-        if new_state != self.current_state:
-            self.state_persistence += 1
-            if self.state_persistence >= self.required_persistence:
-                self.current_state = new_state
-                self.state_persistence = 0
-        else:
-            self.state_persistence = 0
-
+        # Safety override: very high PERCLOS should immediately force Fatigued.
         if perclos_ratio > 0.55:
             self.current_state = 2
             self.ema_probs = np.array([0, 0, 1])
+            self.state_persistence = 0
+        
+        proposed_state = int(np.argmax(self.ema_probs))
+        confidence = float(self.ema_probs[proposed_state])
+
+        # Match Standard mode's staged transition feel:
+        # Alert -> Drowsy -> Fatigued and Fatigued -> Drowsy -> Alert.
+        if perclos_ratio <= 0.55:
+            if self.current_state == 0 and proposed_state == 2:
+                if confidence < 0.9:
+                    proposed_state = 1
+
+            if self.current_state == 2 and proposed_state == 0:
+                proposed_state = 1
+
+        if proposed_state != self.current_state:
+            self.state_persistence += 1
+            if self.state_persistence >= self.required_persistence:
+                self.current_state = proposed_state
+                self.state_persistence = 0
+        else:
+            self.state_persistence = 0
 
         microsleep_detected = bool(perclos_ratio > 0.80 or ear < 0.15)
         confidence = float(self.ema_probs[self.current_state])
