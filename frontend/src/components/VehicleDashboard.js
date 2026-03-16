@@ -25,7 +25,7 @@ const getStatusTone = (status) => {
 };
 
 const VehicleDashboard = () => {
-    const { vehicleData, headPositionHistory, predictionHistory, connectionStatus } = useVehicleContext();
+    const { vehicleData, headPositionHistory, predictionHistory } = useVehicleContext();
     const [isLoading, setIsLoading] = useState(true);
     const [cameraOverlayMode, setCameraOverlayMode] = useState('none');
     const unstableFramesRef = useRef(0);

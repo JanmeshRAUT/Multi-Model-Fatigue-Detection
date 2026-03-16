@@ -3,6 +3,7 @@
   flex-direction: column;
   gap: 16px;
   min-height: 100%;
+  padding-bottom: 12px;
 }
 
 .owner-hero {
@@ -25,7 +26,7 @@
 
 .owner-title {
   margin: 4px 0;
-  font-size: 1.15rem;
+  font-size: clamp(1.05rem, 1.7vw, 1.35rem);
   font-weight: 800;
 }
 
@@ -50,6 +51,7 @@
 }
 
 .owner-vehicle-select {
+  min-width: 140px;
   background: #0b1220;
   color: #e2e8f0;
   border: 1px solid #334155;
@@ -103,7 +105,7 @@
 
 .owner-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(180px, 1fr));
+  grid-template-columns: repeat(4, minmax(200px, 1fr));
   gap: 12px;
 }
 
@@ -182,6 +184,16 @@
   border-bottom: 1px dashed #e2e8f0;
 }
 
+.owner-kv span {
+  color: #475569;
+}
+
+.owner-kv strong {
+  color: #0f172a;
+  text-align: right;
+  word-break: break-word;
+}
+
 .owner-kv:last-child {
   border-bottom: 0;
 }
@@ -203,7 +215,7 @@
 
 .owner-alert-item {
   display: grid;
-  grid-template-columns: 110px 1fr 80px 1fr;
+  grid-template-columns: 120px 1fr 90px 1fr;
   gap: 10px;
   padding: 10px;
   border-radius: 10px;
@@ -222,27 +234,67 @@
   border-color: #fde68a;
 }
 
-@media (max-width: 1200px) {
+@media (max-width: 1400px) {
   .owner-grid {
-    grid-template-columns: repeat(2, minmax(180px, 1fr));
+    grid-template-columns: repeat(2, minmax(200px, 1fr));
   }
 
+  .owner-panels {
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+  }
+}
+
+@media (max-width: 1200px) {
   .owner-panels {
     grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 768px) {
+  .owner-dashboard {
+    gap: 12px;
+  }
+
   .owner-hero {
     flex-direction: column;
     align-items: flex-start;
+    padding: 14px;
+    border-radius: 12px;
+  }
+
+  .owner-status-chip {
+    width: 100%;
+    min-width: 0;
   }
 
   .owner-grid {
     grid-template-columns: 1fr;
   }
 
+  .owner-vehicle-row {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .owner-vehicle-select {
+    width: 100%;
+  }
+
+  .owner-vehicle-badge {
+    width: fit-content;
+    max-width: 100%;
+    white-space: normal;
+    word-break: break-word;
+  }
+
+  .owner-panel {
+    padding: 12px;
+  }
+
   .owner-alert-item {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
 }

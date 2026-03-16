@@ -167,7 +167,7 @@ const OwnerDashboardWithHeader = ({ selectedModel, setSelectedModel }) => {
         </div>
       </header>
 
-      <main className="dashboard-content" style={{ padding: 16 }}>
+      <main className="dashboard-content owner-content" style={{ padding: 16 }}>
         <OwnerDashboard />
       </main>
     </div>
