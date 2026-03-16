@@ -4,7 +4,7 @@ import { useFatigueData } from "../hooks/useFatigueData";
 import { useFatigueContext } from "../context/FatigueContext";
 import { API_BASE } from "../api";
 
-export default function CameraModule() {
+export default function CameraModule({ vehicleOverlayMode = "none" }) {
   // Always call hooks unconditionally at top level (React Hooks Rules)
   const contextData = useFatigueContext();
   const data = useFatigueData();
@@ -19,6 +19,8 @@ export default function CameraModule() {
   const wsRef = useRef(null);
 
   const noFaceDetected = data?.status === "No Face";
+  const showNoSubjectOverlay = cameraStatus === "Streaming" && (noFaceDetected || vehicleOverlayMode === "no-subject");
+  const showUnstableOverlay = cameraStatus === "Streaming" && vehicleOverlayMode === "unstable" && !showNoSubjectOverlay;
 
   useEffect(() => {
     let stream;
@@ -122,7 +124,7 @@ export default function CameraModule() {
       if (animationFrameId) cancelAnimationFrame(animationFrameId);
       if (stream) stream.getTracks().forEach((t) => t.stop());
     };
-  }, [setFullData]);
+  }, [setFullData, hasContext]);
 
   return (
     <>
@@ -137,8 +139,8 @@ export default function CameraModule() {
         />
         <canvas ref={canvasRef} style={{ display: "none" }} />
 
-        {/* NO FACE DETECTED OVERLAY */}
-        {noFaceDetected && cameraStatus === 'Streaming' && (
+        {/* NO SUBJECT / NO FACE OVERLAY */}
+        {showNoSubjectOverlay && (
           <div style={{
             position: 'absolute',
             inset: 0,
@@ -158,14 +160,38 @@ export default function CameraModule() {
           </div>
         )}
 
+        {/* UNSTABLE POSITION OVERLAY */}
+        {showUnstableOverlay && (
+          <div style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'rgba(245, 158, 11, 0.16)',
+            backdropFilter: 'blur(1px)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 19
+          }}>
+            <div className="animate-pulse" style={{ background: '#f59e0b', padding: '8px 16px', borderRadius: '8px', color: '#111827', fontWeight: 800, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 12px rgba(245, 158, 11, 0.35)' }}>
+              UNSTABLE HEAD POSITION
+            </div>
+            <span style={{ color: 'white', fontSize: '0.7rem', fontWeight: 600, marginTop: '8px', textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}>Keep your head centered for reliable detection</span>
+          </div>
+        )}
+
         {/* Overlay HUD */}
         <div className="camera-overlay">
           <div className="camera-status">
             <span style={{
               width: 8, height: 8, borderRadius: '50%',
-              background: cameraStatus === 'Streaming' ? (noFaceDetected ? '#f59e0b' : '#22c55e') : '#ef4444'
+              background: cameraStatus === 'Streaming'
+                ? (showNoSubjectOverlay ? '#ef4444' : (showUnstableOverlay ? '#f59e0b' : '#22c55e'))
+                : '#ef4444'
             }}></span>
-            {cameraStatus === 'Streaming' ? (noFaceDetected ? 'Searching...' : 'Live Feed Active (WS)') : cameraStatus}
+            {cameraStatus === 'Streaming'
+              ? (showNoSubjectOverlay ? 'No Subject Detected' : (showUnstableOverlay ? 'Unstable Position' : 'Live Feed Active (WS)'))
+              : cameraStatus}
           </div>
 
           <div>

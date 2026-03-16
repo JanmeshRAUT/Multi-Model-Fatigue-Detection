@@ -40,7 +40,7 @@ export default function BodyTemperatureChart() {
             <Tooltip 
               contentStyle={{
                 backgroundColor: '#fff',
-                border: '1px solid #e2e8f0',
+                border: '1px solid #e2e82f0',
                 borderRadius: '8px',
                 boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'
               }}

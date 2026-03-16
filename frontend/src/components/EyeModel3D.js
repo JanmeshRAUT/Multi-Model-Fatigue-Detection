@@ -1,212 +1,200 @@
-import React, { useRef, useMemo, useState, useEffect } from "react";
+import React, { useMemo, useRef } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { RoundedBox, Environment, OrbitControls } from "@react-three/drei";
+import { RoundedBox, Environment, ContactShadows } from "@react-three/drei";
+import * as THREE from "three";
 import "./Css/EyeModel.css";
 
-function EyeVisualization({ perclos = 0, ear = 0.3, status = "Open" }) {
+function EyeRobotModel({ perclos = 0, ear = 0.3, status = "Open" }) {
   const groupRef = useRef();
-  const leftEyelidTopRef = useRef();
-  const leftEyelidBotRef = useRef();
-  const rightEyelidTopRef = useRef();
-  const rightEyelidBotRef = useRef();
-  
-  const [blinkPhase, setBlinkPhase] = useState(0);
-  
-  // Normalize PERCLOS (0-100% to 0-1)
+  const leftEyeCoreRef = useRef();
+  const rightEyeCoreRef = useRef();
+  const leftEyeRingRef = useRef();
+  const rightEyeRingRef = useRef();
+  const browLeftRef = useRef();
+  const browRightRef = useRef();
+  const pulseArcRef = useRef();
+
+  const blinkState = useRef({
+    active: false,
+    progress: 0,
+    nextBlinkAt: 1.5 + Math.random() * 2.5,
+  });
+
   const normalizedPerclos = Math.max(0, Math.min(1, perclos / 100));
   const normalizedEAR = Math.max(0, Math.min(1, ear / 0.4));
-  
-  // Eye opening based on EAR
-  const eyeOpenAmount = Math.max(0.2, normalizedEAR);
-  
-  // Dynamic eye color based on PERCLOS
+
   const eyeColor = useMemo(() => {
-    if (status === "Closed" || normalizedPerclos > 0.95) return "#000000";
-    if (normalizedPerclos > 0.65) return "#FF0000"; // Red - critical
-    if (normalizedPerclos > 0.45) return "#FF4500"; // Orange-red - high
-    if (normalizedPerclos > 0.25) return "#FFB700"; // Orange - medium
-    if (normalizedPerclos > 0.1) return "#90EE90"; // Light green - low
-    return "#00FF00"; // Bright green - alert
+    if (status === "Fatigued" || normalizedPerclos >= 0.55) return new THREE.Color("#ef4444");
+    if (status === "Drowsy" || normalizedPerclos >= 0.3) return new THREE.Color("#f59e0b");
+    return new THREE.Color("#7ce7d7");
   }, [status, normalizedPerclos]);
-  
-  // Iris glow intensity
-  const glowIntensity = Math.max(0.5, 1 - normalizedPerclos * 0.6);
 
-  // Blinking animation
-  useEffect(() => {
-    let blinkTimer;
-    const scheduleBlinkCycle = () => {
-      const blinkInterval = Math.random() * 2000 + 3000;
-      blinkTimer = setTimeout(() => {
-        setBlinkPhase(0);
-        let progress = 0;
-        const blinkTick = setInterval(() => {
-          progress += 0.06;
-          setBlinkPhase(progress);
-          
-          if (progress >= 1) {
-            clearInterval(blinkTick);
-            scheduleBlinkCycle();
-          }
-        }, 16);
-      }, blinkInterval);
-    };
-    
-    scheduleBlinkCycle();
-    return () => clearTimeout(blinkTimer);
-  }, []);
+  const trimColor = useMemo(() => {
+    if (status === "Fatigued" || normalizedPerclos >= 0.55) return "#fecaca";
+    if (status === "Drowsy" || normalizedPerclos >= 0.3) return "#fde68a";
+    return "#a7f3d0";
+  }, [status, normalizedPerclos]);
 
-  // Eyelid animation and head tilt
-  useFrame((state) => {
+  useFrame((state, delta) => {
     const time = state.clock.getElapsedTime();
-    
-    // Head tilt
-    if (groupRef.current) {
-      groupRef.current.rotation.z = Math.sin(time * 0.3) * 0.02;
+    const blink = blinkState.current;
+
+    if (!blink.active && time >= blink.nextBlinkAt) {
+      blink.active = true;
+      blink.progress = 0;
     }
-    
-    // Blink animation
-    const blinkEffect = Math.sin(blinkPhase * Math.PI);
-    const fatigueClosing = Math.max(0, Math.min(1, normalizedPerclos * 0.6));
-    const combinedClosing = blinkEffect * 0.5 + fatigueClosing * 0.4;
-    
-    // Update eyelids
-    [leftEyelidTopRef, rightEyelidTopRef].forEach(ref => {
+
+    if (blink.active) {
+      blink.progress += delta * 10;
+      if (blink.progress >= 1) {
+        blink.active = false;
+        blink.progress = 0;
+        blink.nextBlinkAt = time + 1.6 + Math.random() * 2.8;
+      }
+    }
+
+    const blinkAmount = blink.active ? Math.sin(blink.progress * Math.PI) : 0;
+    const fatigueSquint = THREE.MathUtils.clamp(
+      normalizedPerclos * 0.45 + (1 - normalizedEAR) * 0.3,
+      0,
+      0.72
+    );
+    const eyeOpen = THREE.MathUtils.clamp(1 - blinkAmount * 0.9 - fatigueSquint, 0.1, 1);
+    const gazeOffsetX = Math.sin(time * 0.85) * 0.018;
+    const gazeOffsetY = Math.cos(time * 0.55) * 0.01;
+
+    if (groupRef.current) {
+      groupRef.current.rotation.z = Math.sin(time * 0.33) * 0.016;
+      groupRef.current.rotation.x = Math.cos(time * 0.24) * 0.014;
+      groupRef.current.position.y = Math.sin(time * 0.52) * 0.018;
+    }
+
+    [leftEyeCoreRef, rightEyeCoreRef].forEach((ref, index) => {
       if (ref.current) {
-        ref.current.position.y = 0.25 - combinedClosing * 0.35;
-        ref.current.scale.y = Math.max(0.1, 1 - combinedClosing * 0.7);
+        ref.current.scale.y = eyeOpen;
+        ref.current.scale.x = THREE.MathUtils.lerp(0.92, 1.08, 1 - eyeOpen);
+        ref.current.position.x = (index === 0 ? -0.31 : 0.31) + gazeOffsetX;
+        ref.current.position.y = gazeOffsetY;
       }
     });
-    
-    [leftEyelidBotRef, rightEyelidBotRef].forEach(ref => {
+
+    [leftEyeRingRef, rightEyeRingRef].forEach((ref, index) => {
       if (ref.current) {
-        ref.current.position.y = -0.25 + combinedClosing * 0.35;
-        ref.current.scale.y = Math.max(0.1, 1 - combinedClosing * 0.7);
+        ref.current.position.x = (index === 0 ? -0.31 : 0.31) + gazeOffsetX * 0.5;
+        ref.current.position.y = gazeOffsetY * 0.5;
+        ref.current.material.opacity = THREE.MathUtils.lerp(0.35, 0.85, eyeOpen);
       }
     });
+
+    [browLeftRef, browRightRef].forEach((ref) => {
+      if (ref.current) {
+        ref.current.visible = normalizedPerclos > 0.35;
+        ref.current.position.y = 0.27 - fatigueSquint * 0.12;
+      }
+    });
+
+    if (pulseArcRef.current) {
+      pulseArcRef.current.scale.x = THREE.MathUtils.lerp(0.4, 1, eyeOpen);
+      pulseArcRef.current.material.emissiveIntensity = THREE.MathUtils.lerp(0.35, 1.3, eyeOpen);
+      pulseArcRef.current.material.opacity = THREE.MathUtils.lerp(0.35, 0.82, eyeOpen);
+      pulseArcRef.current.visible = status !== "Closed";
+    }
   });
 
   return (
     <group ref={groupRef}>
-      {/* Main Head - Clean Rounded Box */}
-      <RoundedBox args={[2.0, 1.8, 1.4]} radius={0.25} smoothness={4}>
-        <meshStandardMaterial 
-          color="#f5f5f5" 
-          roughness={0.2} 
-          metalness={0.05}
-          envMapIntensity={1}
+      <RoundedBox args={[1.62, 1.56, 1.14]} radius={0.28} smoothness={4}>
+        <meshStandardMaterial color="#d9e3ef" roughness={0.34} metalness={0.1} />
+      </RoundedBox>
+
+      <RoundedBox args={[1.32, 0.68, 0.1]} radius={0.2} smoothness={2} position={[0, 0.04, 0.6]}>
+        <meshStandardMaterial color="#04101f" roughness={0.2} metalness={0.82} />
+      </RoundedBox>
+
+      <RoundedBox args={[1.2, 0.56, 0.03]} radius={0.16} smoothness={2} position={[0, 0.04, 0.665]}>
+        <meshPhysicalMaterial
+          color="#0f172a"
+          roughness={0.04}
+          transmission={0.2}
+          thickness={0.2}
+          opacity={0.7}
+          transparent
         />
       </RoundedBox>
 
-      {/* LEFT EYE */}
-      <group position={[-0.5, 0.15, 0.75]}>
-        <mesh>
-          <circleGeometry args={[0.3, 32]} />
-          <meshStandardMaterial color="#1a1a1a" roughness={0.3} />
-        </mesh>
-        
-        <mesh position={[0, 0, 0.05]} scale={[eyeOpenAmount * 0.85, eyeOpenAmount, 1]}>
-          <circleGeometry args={[0.15, 32]} />
-          <meshStandardMaterial 
-            color={eyeColor}
-            emissive={eyeColor}
-            emissiveIntensity={glowIntensity}
-            roughness={0.2}
-            metalness={0.3}
-          />
-        </mesh>
-        
-        <mesh position={[0, 0, 0.06]}>
-          <circleGeometry args={[0.08, 32]} />
-          <meshStandardMaterial color="#000000" roughness={0.1} metalness={0.9} />
+      <group position={[0, 0.07, 0.68]}>
+        <mesh ref={leftEyeCoreRef} position={[-0.31, 0, 0]}>
+          <capsuleGeometry args={[0.07, 0.16, 4, 10]} />
+          <meshStandardMaterial color={eyeColor} emissive={eyeColor} emissiveIntensity={2.2} />
         </mesh>
 
-        <mesh position={[0.05, 0.05, 0.07]}>
-          <circleGeometry args={[0.03, 16]} />
-          <meshStandardMaterial 
-            color="#ffffff" 
-            emissive="#ffffff" 
-            emissiveIntensity={2}
-          />
+        <mesh ref={rightEyeCoreRef} position={[0.31, 0, 0]}>
+          <capsuleGeometry args={[0.07, 0.16, 4, 10]} />
+          <meshStandardMaterial color={eyeColor} emissive={eyeColor} emissiveIntensity={2.2} />
         </mesh>
 
-        <mesh ref={leftEyelidTopRef} position={[0, 0.28, 0.08]}>
-          <boxGeometry args={[0.5, 0.1, 0.15]} />
-          <meshStandardMaterial color="#e0e0e0" roughness={0.4} metalness={0.05} />
+        <mesh ref={leftEyeRingRef} position={[-0.31, 0, 0]}>
+          <torusGeometry args={[0.12, 0.012, 14, 36]} />
+          <meshStandardMaterial color={eyeColor} emissive={eyeColor} emissiveIntensity={0.6} transparent opacity={0.75} />
         </mesh>
-        
-        <mesh ref={leftEyelidBotRef} position={[0, -0.28, 0.08]}>
-          <boxGeometry args={[0.5, 0.1, 0.15]} />
-          <meshStandardMaterial color="#e0e0e0" roughness={0.4} metalness={0.05} />
+
+        <mesh ref={rightEyeRingRef} position={[0.31, 0, 0]}>
+          <torusGeometry args={[0.12, 0.012, 14, 36]} />
+          <meshStandardMaterial color={eyeColor} emissive={eyeColor} emissiveIntensity={0.6} transparent opacity={0.75} />
+        </mesh>
+
+        <mesh ref={browLeftRef} position={[-0.31, 0.23, 0.01]} rotation={[0, 0, 0.18]}>
+          <boxGeometry args={[0.2, 0.016, 0.02]} />
+          <meshStandardMaterial color={trimColor} emissive={trimColor} emissiveIntensity={0.45} />
+        </mesh>
+
+        <mesh ref={browRightRef} position={[0.31, 0.23, 0.01]} rotation={[0, 0, -0.18]}>
+          <boxGeometry args={[0.2, 0.016, 0.02]} />
+          <meshStandardMaterial color={trimColor} emissive={trimColor} emissiveIntensity={0.45} />
         </mesh>
       </group>
 
-      {/* RIGHT EYE */}
-      <group position={[0.5, 0.15, 0.75]}>
-        <mesh>
-          <circleGeometry args={[0.3, 32]} />
-          <meshStandardMaterial color="#1a1a1a" roughness={0.3} />
-        </mesh>
-        
-        <mesh position={[0, 0, 0.05]} scale={[eyeOpenAmount * 0.85, eyeOpenAmount, 1]}>
-          <circleGeometry args={[0.15, 32]} />
-          <meshStandardMaterial 
-            color={eyeColor}
-            emissive={eyeColor}
-            emissiveIntensity={glowIntensity}
-            roughness={0.2}
-            metalness={0.3}
-          />
-        </mesh>
-        
-        <mesh position={[0, 0, 0.06]}>
-          <circleGeometry args={[0.08, 32]} />
-          <meshStandardMaterial color="#000000" roughness={0.1} metalness={0.9} />
-        </mesh>
+      <mesh ref={pulseArcRef} position={[0, -0.24, 0.675]} rotation={[0, 0, Math.PI / 2]}>
+        <torusGeometry args={[0.2, 0.015, 10, 36, Math.PI]} />
+        <meshStandardMaterial color={eyeColor} emissive={eyeColor} emissiveIntensity={1} transparent opacity={0.75} />
+      </mesh>
 
-        <mesh position={[-0.05, 0.05, 0.07]}>
-          <circleGeometry args={[0.03, 16]} />
-          <meshStandardMaterial 
-            color="#ffffff" 
-            emissive="#ffffff" 
-            emissiveIntensity={2}
-          />
-        </mesh>
+      <RoundedBox args={[0.16, 0.44, 0.3]} radius={0.05} smoothness={2} position={[-0.9, 0.02, -0.02]}>
+        <meshStandardMaterial color="#c4cfdd" roughness={0.42} metalness={0.08} />
+      </RoundedBox>
+      <RoundedBox args={[0.16, 0.44, 0.3]} radius={0.05} smoothness={2} position={[0.9, 0.02, -0.02]}>
+        <meshStandardMaterial color="#c4cfdd" roughness={0.42} metalness={0.08} />
+      </RoundedBox>
 
-        <mesh ref={rightEyelidTopRef} position={[0, 0.28, 0.08]}>
-          <boxGeometry args={[0.5, 0.1, 0.15]} />
-          <meshStandardMaterial color="#e0e0e0" roughness={0.4} metalness={0.05} />
-        </mesh>
-        
-        <mesh ref={rightEyelidBotRef} position={[0, -0.28, 0.08]}>
-          <boxGeometry args={[0.5, 0.1, 0.15]} />
-          <meshStandardMaterial color="#e0e0e0" roughness={0.4} metalness={0.05} />
-        </mesh>
-      </group>
+      <mesh position={[0, -0.74, -0.02]}>
+        <cylinderGeometry args={[0.38, 0.48, 0.2, 36]} />
+        <meshStandardMaterial color="#ccd6e2" roughness={0.46} metalness={0.06} />
+      </mesh>
+
+      <mesh position={[0, -0.86, -0.02]}>
+        <cylinderGeometry args={[0.58, 0.58, 0.07, 40]} />
+        <meshStandardMaterial color="#bdc9d7" roughness={0.5} metalness={0.05} />
+      </mesh>
     </group>
   );
 }
 
 export default function EyeModel3D({ perclos = 0, ear = 0.3, status = "Open" }) {
-  // Validate inputs
   const safePerclos = typeof perclos === "number" ? perclos : 0;
   const safeEar = typeof ear === "number" ? ear : 0.3;
   const safeStatus = typeof status === "string" ? status : "Open";
-  
+
   return (
     <div className="eye-model-container">
-      <Canvas 
-        camera={{ position: [0, 0, 2.5], fov: 50 }} 
-        style={{ width: '100%', height: '100%' }}
-      >
-        <ambientLight intensity={0.8} />
-        <directionalLight position={[5, 10, 7]} intensity={1.2} />
-        <pointLight position={[0, 0, 2]} intensity={0.7} color="#4ade80" />
-        
-        <EyeVisualization perclos={safePerclos} ear={safeEar} status={safeStatus} />
-        
-        <Environment preset="studio" intensity={1.3} />
-        <OrbitControls enableZoom={false} enablePan={false} autoRotate={false} />
+      <Canvas camera={{ position: [0, 0, 4], fov: 50 }} style={{ width: "100%", height: "100%" }}>
+        <ambientLight intensity={0.5} />
+        <spotLight position={[10, 10, 10]} angle={0.2} penumbra={1} intensity={1} castShadow />
+        <pointLight position={[-8, -8, -8]} intensity={0.4} />
+
+        <EyeRobotModel perclos={safePerclos} ear={safeEar} status={safeStatus} />
+
+        <ContactShadows position={[0, -1.26, 0]} opacity={0.35} scale={7} blur={2.3} far={4} />
+        <Environment preset="city" />
       </Canvas>
     </div>
   );

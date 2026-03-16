@@ -15,7 +15,10 @@ class Config:
     
     # --- ML Engine Configuration ---
     MODEL_PATH = os.path.join(os.path.dirname(__file__), "ml", "models", "fatigue_model.pkl")
-    VEHICLE_MODEL_PATH = os.path.join(os.path.dirname(__file__), "ml", "models", "vehicle_fatigue_model.pkl")
+    LEGACY_VEHICLE_MODEL_PATH = os.path.join(os.path.dirname(__file__), "ml", "models", "vehicle_fatigue_model.pkl")
+    VEHICLE_MODEL_PATH = os.path.join(os.path.dirname(__file__), "ml", "models", "xgboost_independent.joblib")
+    VEHICLE_SCALER_PATH = os.path.join(os.path.dirname(__file__), "ml", "models", "xgb_scaler.joblib")
+    VEHICLE_LABEL_ENCODER_PATH = os.path.join(os.path.dirname(__file__), "ml", "models", "xgb_label_encoder.joblib")
     ML_INTERVAL = 0.5 # Seconds between ML predictions to prevent CPU overload
     
     # --- Logging / Debug ---

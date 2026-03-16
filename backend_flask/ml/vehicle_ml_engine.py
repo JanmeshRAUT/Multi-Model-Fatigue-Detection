@@ -11,9 +11,14 @@ class VehicleMLEngine:
     Uses only: Head Position, Camera, Perclos, Yawning
     NO psychological sensors (HR, Temperature, IMU)
     """
-    def __init__(self, model_path="vehicle_fatigue_model.pkl"):
+    def __init__(self, model_path="vehicle_fatigue_model.pkl", scaler_path=None, label_encoder_path=None):
         self.model = None
         self.model_path = model_path
+        self.scaler_path = scaler_path
+        self.label_encoder_path = label_encoder_path
+        self.scaler = None
+        self.label_encoder = None
+        self.use_xgb_pipeline = False
         self.labels = {0: "Alert", 1: "Drowsy", 2: "Fatigued"}
         
         # INDUSTRIAL UPGRADE: Feature Window
@@ -53,7 +58,16 @@ class VehicleMLEngine:
 
         try:
             self.model = joblib.load(self.model_path)
-            print(f"[VehicleML] ✅ Model loaded successfully from {self.model_path}")
+            if self.scaler_path and os.path.exists(self.scaler_path):
+                self.scaler = joblib.load(self.scaler_path)
+            if self.label_encoder_path and os.path.exists(self.label_encoder_path):
+                self.label_encoder = joblib.load(self.label_encoder_path)
+
+            self.use_xgb_pipeline = self.scaler is not None
+            if self.use_xgb_pipeline:
+                print(f"[VehicleML] ✅ XGBoost pipeline loaded: {self.model_path}")
+            else:
+                print(f"[VehicleML] ✅ Legacy model loaded: {self.model_path}")
         except Exception as e:
             print(f"[VehicleML] ❌ Failed to load model: {e}")
 
@@ -94,7 +108,43 @@ class VehicleMLEngine:
             'roll_mean': means[4], 'roll_std': stds[4],
         }
 
-    def predict(self, vision_data):
+    def _build_xgb_features(self, vision_data, sensor_data):
+        ear = float(vision_data.get('ear', 0.3) or 0.3)
+        mar = float(vision_data.get('mar', 0.0) or 0.0)
+        pitch = float(vision_data.get('pitch', 0.0) or 0.0)
+        yaw = float(vision_data.get('yaw', 0.0) or 0.0)
+        roll = float(vision_data.get('roll', 0.0) or 0.0)
+        perclos = float(vision_data.get('perclos', 0.0) or 0.0)
+
+        # Keep scale consistent with training data (0-1 for PERCLOS)
+        if perclos > 1.0:
+            perclos = perclos / 100.0
+
+        heart_rate = float(sensor_data.get('hr', 75.0) or 75.0)
+        spo2 = float(sensor_data.get('spo2', 98.0) or 98.0)
+        temperature = float(sensor_data.get('temperature', 37.0) or 37.0)
+
+        # Lightweight imputation and clipping for real-time robustness
+        heart_rate = float(np.clip(heart_rate, 40.0, 180.0))
+        spo2 = float(np.clip(spo2, 80.0, 100.0))
+        temperature = float(np.clip(temperature, 34.0, 41.0))
+
+        eps = 1e-6
+        ear_mar_ratio = ear / (mar + eps)
+        perclos_blink_interaction = perclos * float(vision_data.get('blink_rate', 0.0) or 0.0)
+        head_motion_sum = abs(pitch) + abs(yaw) + abs(roll)
+
+        cols = [
+            "EAR", "MAR", "PERCLOS", "blink_rate", "head_pitch", "head_yaw", "head_roll",
+            "heart_rate", "spo2", "temperature", "ear_mar_ratio", "perclos_blink_interaction", "head_motion_sum"
+        ]
+        values = [
+            ear, mar, perclos, float(vision_data.get('blink_rate', 0.0) or 0.0), pitch, yaw, roll,
+            heart_rate, spo2, temperature, ear_mar_ratio, perclos_blink_interaction, head_motion_sum
+        ]
+        return pd.DataFrame([values], columns=cols)
+
+    def predict(self, vision_data, sensor_data=None):
         """
         Vehicle Model Prediction - Vision Only
         
@@ -120,6 +170,9 @@ class VehicleMLEngine:
         if self.model is None:
             return {"status": "Unknown", "confidence": 0, "raw_probs": [0, 0, 0], "microsleep_detected": False}
 
+        if sensor_data is None:
+            sensor_data = {}
+
         # --- 0. VALIDITY CHECK (SAFETY FIRST) ---
         vision_status = vision_data.get("status", "Unknown")
         if vision_status in ["No Face", "Unstable"]:
@@ -143,6 +196,7 @@ class VehicleMLEngine:
         yaw = vision_data.get('yaw', 0.0)
         roll = vision_data.get('roll', 0.0)
         perclos = vision_data.get('perclos', 0.0)
+        perclos_ratio = perclos / 100.0 if perclos > 1.0 else perclos
         
         self.last_vision_values = {"ear": ear, "mar": mar}
 
@@ -179,12 +233,17 @@ class VehicleMLEngine:
             temporal_features['yaw_std'],
             temporal_features['roll_mean'],
             temporal_features['roll_std'],
-            perclos  # PERCLOS (eye closure percentage) - crucial for vehicle model
+            perclos_ratio  # PERCLOS ratio
         ])
 
         # --- 5. ML INFERENCE ---
         try:
-            probs = self.model.predict_proba([X])[0]
+            if self.use_xgb_pipeline:
+                xgb_df = self._build_xgb_features(vision_data, sensor_data)
+                X_scaled = self.scaler.transform(xgb_df)
+                probs = self.model.predict_proba(X_scaled)[0]
+            else:
+                probs = self.model.predict_proba([X])[0]
         except Exception as e:
             print(f"[VehicleML] Inference error: {e}")
             return {"status": "Error", "confidence": 0, "raw_probs": [0, 0, 0], "microsleep_detected": False}
@@ -209,20 +268,27 @@ class VehicleMLEngine:
 
         # --- 8. SAFETY: PERCLOS OVERRIDE ---
         # If PERCLOS > 55%, force "Fatigued" regardless of model output
-        if perclos > 0.55:
+        if perclos_ratio > 0.55:
             self.current_state = 2
             self.ema_probs = np.array([0, 0, 1])
 
         # --- 9. MICROSLEEP DETECTION ---
         # Triggered by sustained high PERCLOS and/or very low EAR
         microsleep_detected = False
-        if (perclos > 0.80) or (ear < 0.15):
+        if (perclos_ratio > 0.80) or (ear < 0.15):
             microsleep_detected = True
 
         confidence = float(self.ema_probs[self.current_state])
+        output_label = self.labels[self.current_state]
+        if self.label_encoder is not None:
+            try:
+                decoded = self.label_encoder.inverse_transform([self.current_state])[0]
+                output_label = self.labels.get(int(decoded), output_label)
+            except Exception:
+                pass
 
         return {
-            "status": self.labels[self.current_state],
+            "status": output_label,
             "confidence": round(confidence, 3),
             "raw_probs": [float(p) for p in self.ema_probs],
             "microsleep_detected": microsleep_detected

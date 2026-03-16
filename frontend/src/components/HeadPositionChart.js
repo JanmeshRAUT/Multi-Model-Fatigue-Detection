@@ -70,6 +70,14 @@ function HeadModel({ angles, fatigueStatus, source }) {
 export default function HeadPositionChart({ data = null }) {
   const contextData = useHeadPosition();
   const fatigueData = useFatigueData();
+
+    const getAngle = (obj, key) => {
+        if (!obj) return undefined;
+        if (typeof obj[key] === "number") return obj[key];
+        const altKey = `angle_${key}`;
+        if (typeof obj[altKey] === "number") return obj[altKey];
+        return undefined;
+    };
   
   // Vehicle Mode: use last data point from history array for smooth animation
   const vehicleModeTargetAngles = data && data.length > 0 ? data[data.length - 1] : null;
@@ -81,9 +89,9 @@ export default function HeadPositionChart({ data = null }) {
   const angleData = vehicleModeTargetAngles ? vehicleSmoothed : contextData;
     
   const position = angleData?.position || "Center";
-  const angle_x = angleData?.x ?? contextData?.x ?? 0;
-  const angle_y = angleData?.y ?? contextData?.y ?? 0;
-  const angle_z = angleData?.z ?? contextData?.z ?? 0;
+    const angle_x = getAngle(angleData, "x") ?? getAngle(contextData, "x") ?? 0;
+    const angle_y = getAngle(angleData, "y") ?? getAngle(contextData, "y") ?? 0;
+    const angle_z = getAngle(angleData, "z") ?? getAngle(contextData, "z") ?? 0;
   const source = angleData?.source || "None";
   const calibrated = angleData?.calibrated ?? true;
   

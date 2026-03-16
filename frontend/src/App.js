@@ -91,16 +91,11 @@ const VehicleDashboardWithHeader = ({ selectedModel, setSelectedModel }) => {
         </div>
       </header>
 
-      <main className="dashboard-content">
+      <main className="dashboard-content vehicle-content">
         <VehicleDashboard />
       </main>
     </div>
   );
-};
-
-// Model Switcher Component (kept for reference, now integrated into header)
-const ModelSwitcher = ({ selectedModel, setSelectedModel }) => {
-  return null;
 };
 
 // Wrapper Component to access Context for Theme

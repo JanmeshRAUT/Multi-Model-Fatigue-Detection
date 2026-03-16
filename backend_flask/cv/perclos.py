@@ -16,6 +16,8 @@ MAR_THRESH = 0.6
 
 MAR_FRAME_COUNT = 3
 STABILITY_THRESH = 0.05 # Max allowed normalized movement per frame (5% of screen)
+PERCLOS_WINDOW = 60
+MIN_CLOSED_FRAMES_FOR_PERCLOS = 3
 
 # --- State ---
 perclos_data = {
@@ -28,9 +30,8 @@ perclos_data = {
     "timestamp": int(time.time())
 }
 
-eye_status_history = deque(maxlen=6)
+eye_status_history = deque(maxlen=PERCLOS_WINDOW)
 yawn_frames_count = 0
-closed_frames_count = 0
 closed_frames_count = 0
 mar_history = deque(maxlen=20)
 prev_nose_pos = None # For motion/shake detection
@@ -143,18 +144,20 @@ def process_face_mesh(frame):
 
         # LOGIC: If Unstable, Force Eyes 'Open' to prevent False Positive Fatigue
         if is_stable:
-             eyes_closed = 1 if ear < PERSONAL_EAR_THRESH else 0
+            eyes_closed = 1 if ear < PERSONAL_EAR_THRESH else 0
         else:
-             eyes_closed = 0 # Force Open if shaking
-             
-        eye_status_history.append(eyes_closed)
+            eyes_closed = 0 # Force Open if shaking
         
         if eyes_closed:
             closed_frames_count += 1
         else:
             closed_frames_count = 0
 
-        perclos_val = (sum(eye_status_history) / len(eye_status_history)) * 100
+        # Debounce short blinks so they do not inflate PERCLOS.
+        perclos_closed = 1 if closed_frames_count >= MIN_CLOSED_FRAMES_FOR_PERCLOS else 0
+        eye_status_history.append(perclos_closed)
+
+        perclos_val = (sum(eye_status_history) / max(len(eye_status_history), 1)) * 100
 
         # --- YAWN / MAR ---
         mouth = [(lm.landmark[i].x * w, lm.landmark[i].y * h) for i in MOUTH_INNER]

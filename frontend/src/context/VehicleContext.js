@@ -18,6 +18,23 @@ export const VehicleProvider = ({ children }) => {
     const [predictionHistory, setPredictionHistory] = useState([]);
     const [connectionStatus, setConnectionStatus] = useState("connecting");
 
+    const normalizeVehicleData = (json) => {
+        const perclos = json?.vision?.perclos || json?.perclos || { perclos: 0, ear: 0, mar: 0, status: "Open" };
+        const head = json?.vision?.head_position || json?.head_position || { angle_x: 0, angle_y: 0, angle_z: 0, position: "Center" };
+        const prediction = json?.prediction || { status: "Unknown", confidence: 0, microsleep_detected: false };
+        const sensor = json?.sensor || { hr: 0, temperature: 0 };
+
+        return {
+            ...json,
+            status: json?.system_status || "Active",
+            model_type: "Vehicle",
+            perclos,
+            head_position: head,
+            prediction,
+            sensor,
+        };
+    };
+
     // Update history when data arrives
     useEffect(() => {
         if (!vehicleData) return;
@@ -64,8 +81,7 @@ export const VehicleProvider = ({ children }) => {
 
         const fetchData = async () => {
             try {
-                // Use standard combined_data endpoint (same as Standard Mode)
-                const response = await fetch(`${API_BASE}/api/combined_data`, {
+                const response = await fetch(`${API_BASE}/api/vehicle/combined_data`, {
                     method: 'GET',
                     headers: {
                         "ngrok-skip-browser-warning": "69420",
@@ -80,21 +96,10 @@ export const VehicleProvider = ({ children }) => {
                 const json = await response.json();
 
                 if (isMounted) {
-                    // Validate data structure - check for essential fields
-                    if (json && (json.perclos || json.head_position || json.prediction)) {
-                        // Enrich with defaults for missing fields
-                        const enrichedData = {
-                            ...json,
-                            status: "Active",
-                            model_type: "Vehicle",
-                            perclos: json.perclos || { perclos: 0, ear: 0, mar: 0, status: "Open" },
-                            head_position: json.head_position || { angle_x: 0, angle_y: 0, angle_z: 0, position: "Center" },
-                            prediction: json.prediction || { status: "Unknown", confidence: 0, microsleep_detected: false },
-                            sensor: json.sensor || { hr: 0, temperature: 0 }
-                        };
-                        setVehicleData(enrichedData);
+                    if (json && (json.vision || json.perclos || json.head_position || json.prediction)) {
+                        setVehicleData(normalizeVehicleData(json));
                         setConnectionStatus("connected");
-                        retryCount = 0; // Reset retry on success
+                        retryCount = 0;
                     } else {
                         console.warn("[VehicleContext] Invalid data structure:", json);
                         setConnectionStatus("invalid_data");
@@ -109,7 +114,6 @@ export const VehicleProvider = ({ children }) => {
                         setVehicleData(null);
                     } else {
                         setConnectionStatus("retrying");
-                        // Keep existing data if available
                         setVehicleData(prev => prev ? ({...prev, status: "Retrying..."}) : null);
                     }
                 }
@@ -119,7 +123,6 @@ export const VehicleProvider = ({ children }) => {
         // Initial fetch immediately
         fetchData();
 
-        // Poll at 500ms (2Hz) - same as Standard Model
         const interval = setInterval(fetchData, 500);
 
         return () => {
@@ -131,7 +134,7 @@ export const VehicleProvider = ({ children }) => {
     // Helper: Reset Calibration
     const resetCalibration = async () => {
         try {
-            const response = await fetch(`${API_BASE}/api/reset_calibration`, {
+            const response = await fetch(`${API_BASE}/api/vehicle/reset_calibration`, {
                 method: 'POST',
                 headers: {
                     "ngrok-skip-browser-warning": "69420",

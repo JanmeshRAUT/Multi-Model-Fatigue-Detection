@@ -56,7 +56,11 @@ def initialize_systems():
     
     # Initialize Vehicle ML Engine (Vision-Only Model)
     try:
-        vehicle_ml_engine = VehicleMLEngine(model_path=config.VEHICLE_MODEL_PATH)
+        vehicle_ml_engine = VehicleMLEngine(
+            model_path=config.VEHICLE_MODEL_PATH,
+            scaler_path=getattr(config, "VEHICLE_SCALER_PATH", None),
+            label_encoder_path=getattr(config, "VEHICLE_LABEL_ENCODER_PATH", None),
+        )
         logger.info("✅ Vehicle ML Engine Initialized")
     except Exception as e:
         logger.error(f"❌ Failed to initialize Vehicle ML Engine: {e}")
@@ -244,11 +248,18 @@ def get_vehicle_combined_data_internal():
                     "pitch": hp["angle_x"],
                     "yaw": hp["angle_y"],
                     "roll": hp["angle_z"],
-                    "perclos": perclos_data.get("perclos_value", 0.0),
+                    "perclos": perclos_data.get("perclos", 0.0),
                     "status": perclos_data.get("status", "Unknown")
                 }
-                
-                prediction_result = vehicle_ml_engine.predict(vision_input)
+
+                with sensor_lock:
+                    sensor_input = {
+                        "hr": latest_sensor_data.get("hr") or 75.0,
+                        "spo2": latest_sensor_data.get("spo2") or 98.0,
+                        "temperature": latest_sensor_data.get("temperature") or 37.0,
+                    }
+
+                prediction_result = vehicle_ml_engine.predict(vision_input, sensor_input)
                 cached_vehicle_prediction = prediction_result
                 last_vehicle_ml_time = time.time()
 

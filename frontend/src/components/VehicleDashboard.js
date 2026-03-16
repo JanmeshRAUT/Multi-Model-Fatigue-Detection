@@ -1,243 +1,311 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useVehicleContext } from '../context/VehicleContext';
-import '../Dashboard.css';
-import { Compass, Eye, Activity, Radio, AlertCircle, CheckCircle, Loader } from 'lucide-react';
+import './Css/VehicleDashboard.css';
+import './Css/VehicleShared.css';
+import { Eye, Radio, AlertCircle, Loader, Gauge, Radar, Camera, Waves, Clock3 } from 'lucide-react';
 import HeadPositionChart from './HeadPositionChart';
 import VehicleStatus from './VehicleStatus';
 import CameraModule from './CameraModule';
 import EyeModel3D from './EyeModel3D';
+import { getConnectionMeta } from '../utils/vehicleStatus';
+import { getPerclosRiskBand } from '../utils/vehicleStatus';
+
+const EmptyState = ({ message, loading = false }) => (
+    <div className="vehicle-empty">
+        <div>
+            {loading ? <Loader size={24} className="spinner" /> : <AlertCircle size={24} />}
+            <div>{message}</div>
+        </div>
+    </div>
+);
+
+const getStatusTone = (status) => {
+    if (status === 'Fatigued') return 'danger';
+    if (status === 'Drowsy') return 'warning';
+    return 'safe';
+};
 
 const VehicleDashboard = () => {
-    const { vehicleData, headPositionHistory, predictionHistory } = useVehicleContext();
-    const wsRef = useRef(null);
+    const { vehicleData, headPositionHistory, predictionHistory, connectionStatus } = useVehicleContext();
     const [isLoading, setIsLoading] = useState(true);
-    
-    // Track when data arrives
+
     useEffect(() => {
         if (vehicleData) {
             setIsLoading(false);
         }
     }, [vehicleData]);
 
-    // --- WebSocket Setup ---
-    useEffect(() => {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws/vehicle/detect`;
+    const perclos = vehicleData?.perclos || {};
+    const head = vehicleData?.head_position || {};
 
-        wsRef.current = new WebSocket(wsUrl);
+    const perclosPct = Number((perclos.perclos || 0).toFixed(1));
+    const confidencePct = Math.round(((vehicleData?.prediction?.confidence || 0) * 100));
+    const connectionMeta = useMemo(() => getConnectionMeta(connectionStatus), [connectionStatus]);
+    const recentPredictions = useMemo(() => (predictionHistory || []).slice(-10).reverse(), [predictionHistory]);
+    const trendPredictions = useMemo(() => (predictionHistory || []).slice(-24), [predictionHistory]);
 
-        wsRef.current.onopen = () => {
-            console.log("[VehicleDashboard] WebSocket Connected");
+    const riskBand = useMemo(() => getPerclosRiskBand(perclosPct), [perclosPct]);
+    const perclosTone = perclosPct >= 45 ? 'danger' : perclosPct >= 25 ? 'warning' : 'safe';
+    const hasPerclosData = Boolean(vehicleData?.perclos);
+    const hasHeadData = headPositionHistory.length > 0;
+    const headPosition = head.position || 'Unknown';
+
+    const cameraOverlayMode = useMemo(() => {
+        const pos = String(head.position || '').toLowerCase();
+        const source = String(head.source || '').toLowerCase();
+        const x = Number(head.angle_x || 0);
+        const y = Number(head.angle_y || 0);
+        const z = Number(head.angle_z || 0);
+
+        const noSubject = pos === 'unknown' || source === 'none';
+        if (noSubject) return 'no-subject';
+
+        const unstableByAngle = Math.abs(x) >= 20 || Math.abs(y) >= 30 || Math.abs(z) >= 20;
+        const unstableByPosition = !['center', ''].includes(pos);
+        if (unstableByAngle || unstableByPosition) return 'unstable';
+
+        return 'none';
+    }, [head.angle_x, head.angle_y, head.angle_z, head.position, head.source]);
+
+    const analytics = useMemo(() => {
+        const fallback = {
+            avgConfidence: 0,
+            alertLoadPct: 0,
+            transitions: 0,
+            stabilityScore: 0,
+            driftLabel: 'Stable',
+            driftTone: 'neutral',
+            lastUpdate: null,
+            windowSize: 0,
         };
 
-        wsRef.current.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            console.log("[VehicleDashboard] WebSocket Data:", data);
-        };
+        if (!trendPredictions.length) return fallback;
 
-        wsRef.current.onerror = (error) => {
-            console.error("[VehicleDashboard] WebSocket Error:", error);
-        };
+        const tones = trendPredictions.map((pred) => getStatusTone(pred.status));
+        const confidences = trendPredictions.map((pred) => Math.round((pred.confidence || 0) * 100));
+        const riskScores = tones.map((tone) => (tone === 'danger' ? 3 : tone === 'warning' ? 2 : 1));
 
-        wsRef.current.onclose = () => {
-            console.log("[VehicleDashboard] WebSocket Closed");
-        };
+        const transitions = tones.slice(1).reduce((count, tone, idx) => {
+            return count + (tone !== tones[idx] ? 1 : 0);
+        }, 0);
 
-        return () => {
-            if (wsRef.current) {
-                wsRef.current.close();
-            }
+        const alertLoadPct = Math.round((tones.filter((tone) => tone !== 'safe').length / tones.length) * 100);
+        const avgConfidence = Math.round(confidences.reduce((sum, val) => sum + val, 0) / confidences.length);
+
+        const maxConf = Math.max(...confidences);
+        const minConf = Math.min(...confidences);
+        const volatility = maxConf - minConf;
+        const stabilityScore = Math.max(5, Math.min(99, Math.round(100 - volatility * 1.05 - transitions * 3.2)));
+
+        const recentRisk = riskScores.slice(-6);
+        const previousRisk = riskScores.slice(-12, -6);
+        const avgRecentRisk = recentRisk.length ? recentRisk.reduce((s, v) => s + v, 0) / recentRisk.length : 1;
+        const avgPreviousRisk = previousRisk.length ? previousRisk.reduce((s, v) => s + v, 0) / previousRisk.length : avgRecentRisk;
+        const riskDelta = avgRecentRisk - avgPreviousRisk;
+
+        let driftLabel = 'Stable';
+        let driftTone = 'neutral';
+        if (riskDelta > 0.18) {
+            driftLabel = 'Rising';
+            driftTone = 'warning';
+        } else if (riskDelta < -0.18) {
+            driftLabel = 'Improving';
+            driftTone = 'safe';
+        }
+
+        return {
+            avgConfidence,
+            alertLoadPct,
+            transitions,
+            stabilityScore,
+            driftLabel,
+            driftTone,
+            lastUpdate: recentPredictions[0]?.time || null,
+            windowSize: trendPredictions.length,
         };
-    }, []);
+    }, [recentPredictions, trendPredictions]);
 
     return (
-        <div className="grid-container">
-            {/* Left Column: Data Charts */}
-            <section className="charts-section">
-                
-                {/* Row 1: 3D Eyes Model & Metrics */}
-                <div className="charts-row-1">
-                    <div className="card">
-                        <div className="card-header">
-                            <span className="card-title"><Eye size={18} className="card-icon"/> Eye Status 3D View</span>
-                        </div>
-                        <div className="chart-body-fill" style={{ padding: '8px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                            {vehicleData && vehicleData.perclos ? (
-                                <EyeModel3D 
-                                    perclos={vehicleData.perclos.perclos || 0}
-                                    ear={vehicleData.perclos.ear || 0.3}
-                                    status={vehicleData.perclos.status || "Open"}
-                                />
-                            ) : isLoading ? (
-                                <div style={{ textAlign: 'center', color: '#94a3b8', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                    <div style={{ textAlign: 'center' }}>
-                                        <Loader size={32} style={{ margin: '0 auto 8px', opacity: 0.6, animation: 'spin 2s linear infinite' }} />
-                                        <div style={{ fontSize: '0.9rem' }}>Initializing Camera...</div>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div style={{ textAlign: 'center', color: '#94a3b8', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                    <div style={{ textAlign: 'center' }}>
-                                        <AlertCircle size={32} style={{ margin: '0 auto 8px', opacity: 0.5, color: '#f59e0b' }} />
-                                        <div style={{ fontSize: '0.9rem' }}>Waiting for Data...</div>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
+        <div className="vehicle-ops-shell">
+            <section className="vehicle-ops-main">
+                <div className="vehicle-metric-rack">
+                    <div className={`vehicle-metric tone-${connectionMeta.tone}`}>
+                        <span className="vehicle-metric-label"><Waves size={14} /> Link</span>
+                        <span className="vehicle-metric-value">{connectionMeta.label}</span>
                     </div>
 
-                    <div className="card">
-                        <div className="card-header">
-                            <span className="card-title"><Eye size={18} className="card-icon"/> Vision Metrics</span>
-                        </div>
-                        <div className="chart-body-fill" style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                            {vehicleData && vehicleData.perclos ? (
-                                <>
-                                    <div style={{ padding: '12px', background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)', borderRadius: '8px', border: '2px solid #f59e0b', textAlign: 'center' }}>
-                                        <p style={{ fontSize: '0.75rem', color: '#92400e', margin: 0, fontWeight: 600, marginBottom: '4px' }}>EYE CLOSURE</p>
-                                        <p style={{ fontSize: '1.8rem', fontWeight: 900, color: '#d97706', margin: 0 }}>{((vehicleData.perclos.perclos || 0)).toFixed(1)}%</p>
-                                    </div>
+                    <div className={`vehicle-metric tone-${perclosTone}`}>
+                        <span className="vehicle-metric-label">PERCLOS</span>
+                        <span className="vehicle-metric-value">{perclosPct}%</span>
+                    </div>
 
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                                        <div style={{ padding: '10px', background: (vehicleData.perclos.ear || 0) > 0.25 ? '#dcfce7' : '#fee2e2', borderRadius: '6px', textAlign: 'center', border: `2px solid ${(vehicleData.perclos.ear || 0) > 0.25 ? '#10b981' : '#ef4444'}` }}>
-                                            <p style={{ fontSize: '0.7rem', color: '#374151', margin: 0, fontWeight: 600 }}>EAR</p>
-                                            <p style={{ fontSize: '1.3rem', fontWeight: 800, color: '#1f2937', margin: '4px 0 0' }}>{((vehicleData.perclos.ear || 0).toFixed(2))}</p>
-                                        </div>
-                                        <div style={{ padding: '10px', background: (vehicleData.perclos.mar || 0) > 0.25 ? '#dbeafe' : '#fee2e2', borderRadius: '6px', textAlign: 'center', border: `2px solid ${(vehicleData.perclos.mar || 0) > 0.25 ? '#3b82f6' : '#ef4444'}` }}>
-                                            <p style={{ fontSize: '0.7rem', color: '#374151', margin: 0, fontWeight: 600 }}>MAR</p>
-                                            <p style={{ fontSize: '1.3rem', fontWeight: 800, color: '#1f2937', margin: '4px 0 0' }}>{((vehicleData.perclos.mar || 0).toFixed(2))}</p>
-                                        </div>
-                                    </div>
+                    <div className="vehicle-metric tone-neutral">
+                        <span className="vehicle-metric-label">EAR</span>
+                        <span className="vehicle-metric-value">{(perclos.ear || 0).toFixed(2)}</span>
+                    </div>
 
-                                    <div style={{ padding: '10px', background: vehicleData.perclos.status === 'Open' ? 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)' : 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)', borderRadius: '6px', textAlign: 'center', border: `2px solid ${vehicleData.perclos.status === 'Open' ? '#10b981' : '#dc2626'}`, fontWeight: 700, fontSize: '0.9rem', color: vehicleData.perclos.status === 'Open' ? '#166534' : '#7f1d1d' }}>
-                                        {vehicleData.perclos.status === 'Open' ? '✓ Eyes Open' : '✕ Eyes Closed'}
-                                    </div>
-                                </>
-                            ) : isLoading ? (
-                                <div style={{ textAlign: 'center', color: '#94a3b8', padding: '24px 0' }}>
-                                    <Loader size={24} style={{ margin: '0 auto 8px', animation: 'spin 2s linear infinite' }} />
-                                    <p style={{ margin: 0, fontSize: '0.9rem' }}>Scanning...</p>
-                                </div>
-                            ) : (
-                                <div style={{ textAlign: 'center', color: '#94a3b8', padding: '24px 0' }}>
-                                    <AlertCircle size={24} style={{ margin: '0 auto 8px', color: '#f59e0b' }} />
-                                    <p style={{ margin: 0, fontSize: '0.9rem' }}>No data</p>
-                                </div>
-                            )}
-                        </div>
+                    <div className="vehicle-metric tone-neutral">
+                        <span className="vehicle-metric-label">MAR</span>
+                        <span className="vehicle-metric-value">{(perclos.mar || 0).toFixed(2)}</span>
+                    </div>
+
+                    <div className="vehicle-metric tone-neutral">
+                        <span className="vehicle-metric-label"><Clock3 size={14} /> Confidence</span>
+                        <span className="vehicle-metric-value">{confidencePct}%</span>
                     </div>
                 </div>
 
-                {/* Row 2: Charts */}
-                <div className="charts-row-2">
-                    <div className="card">
-                        <div className="card-header">
-                            <span className="card-title"><Activity size={18} className="card-icon"/> Head Position Trends</span>
+                <div className="vehicle-ops-content">
+                    <div className="vehicle-stage-column">
+                        <div className="vehicle-panel vehicle-panel-camera">
+                            <div className="vehicle-panel-header">
+                                <span className="vehicle-panel-title"><Camera size={17} /> Driver Camera Feed</span>
+                            </div>
+                            <div className="vehicle-panel-body no-pad">
+                                <CameraModule vehicleOverlayMode={cameraOverlayMode} />
+                            </div>
                         </div>
-                        <div className="chart-body-fill">
-                            {headPositionHistory.length > 0 ? (
-                                <HeadPositionChart data={headPositionHistory} />
-                            ) : (
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8' }}>
-                                    Collecting data...
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                    
-                    <div className="card">
-                        <div className="card-header">
-                            <span className="card-title"><Radio size={18} className="card-icon"/> Prediction History</span>
-                        </div>
-                        <div className="chart-body-fill" style={{ padding: '12px', overflowY: 'auto', maxHeight: '280px' }}>
-                            {predictionHistory && predictionHistory.length > 0 ? (
-                                <div style={{ fontSize: '0.85rem' }}>
-                                    {predictionHistory.slice(-8).reverse().map((pred, idx) => {
-                                        const isSafe = pred.status === 'Alert';
-                                        const isDrowsy = pred.status === 'Drowsy';
-                                        const isFatigued = pred.status === 'Fatigued';
-                                        
-                                        const bgGradient = isFatigued 
-                                            ? 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)'
-                                            : isDrowsy 
-                                            ? 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)'
-                                            : 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)';
-                                        
-                                        const borderColor = isFatigued ? '#dc2626' : isDrowsy ? '#f59e0b' : '#10b981';
-                                        const textColor = isFatigued ? '#7f1d1d' : isDrowsy ? '#92400e' : '#166534';
-                                        const statusIcon = isFatigued ? '🚨' : isDrowsy ? '⚠️' : '✓';
-                                        const statusText = isFatigued ? 'Fatigued' : isDrowsy ? 'Drowsy' : 'Alert';
-                                        
-                                        return (
-                                            <div 
-                                                key={idx} 
-                                                style={{ 
-                                                    marginBottom: '10px', 
-                                                    padding: '12px', 
-                                                    background: bgGradient,
-                                                    borderLeft: `4px solid ${borderColor}`,
-                                                    borderRadius: '8px',
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between',
-                                                    alignItems: 'center',
-                                                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.08)',
-                                                    transition: 'all 0.2s ease'
-                                                }}
-                                            >
-                                                <div>
-                                                    <p style={{ margin: '0 0 4px', fontWeight: 700, color: textColor, fontSize: '0.95rem' }}>
-                                                        {statusIcon} {statusText}
-                                                    </p>
-                                                    {pred.microsleep && (
-                                                        <p style={{ margin: 0, fontSize: '0.7rem', color: '#dc2626', fontWeight: 700 }}>
-                                                            MICROSLEEP ALERT!
-                                                        </p>
-                                                    )}
+
+                        <div className="vehicle-panel vehicle-panel-timeline">
+                            <div className="vehicle-panel-header">
+                                <span className="vehicle-panel-title"><Radio size={17} /> Driver Stability Analytics</span>
+                            </div>
+                            <div className="vehicle-panel-body vehicle-history-body">
+                                {hasPerclosData ? (
+                                    recentPredictions.length > 0 ? (
+                                        <div className="vehicle-insight-wrap">
+                                            <div className="vehicle-insight-stats vehicle-analytics-grid">
+                                                <div className={`vehicle-insight-card tone-${analytics.driftTone}`}>
+                                                    <span className="vehicle-insight-label">Risk Drift</span>
+                                                    <strong>{analytics.driftLabel}</strong>
                                                 </div>
-                                                <div style={{ textAlign: 'right' }}>
-                                                    <p style={{ margin: '0 0 2px', fontSize: '1.2rem', fontWeight: 900, color: '#1f2937' }}>
-                                                        {((pred.confidence || 0) * 100).toFixed(0)}%
-                                                    </p>
-                                                    <p style={{ margin: 0, fontSize: '0.65rem', color: '#6b7280' }}>
-                                                        confidence
-                                                    </p>
+                                                <div className={`vehicle-insight-card tone-${analytics.alertLoadPct > 45 ? 'danger' : analytics.alertLoadPct > 20 ? 'warning' : 'safe'}`}>
+                                                    <span className="vehicle-insight-label">Alert Load</span>
+                                                    <strong>{analytics.alertLoadPct}%</strong>
+                                                </div>
+                                                <div className="vehicle-insight-card tone-neutral">
+                                                    <span className="vehicle-insight-label">State Shifts</span>
+                                                    <strong>{analytics.transitions}</strong>
+                                                </div>
+                                                <div className="vehicle-insight-card tone-neutral">
+                                                    <span className="vehicle-insight-label">Stability</span>
+                                                    <strong>{analytics.stabilityScore}%</strong>
                                                 </div>
                                             </div>
-                                        );
-                                    })}
-                                </div>
-                            ) : isLoading ? (
-                                <div style={{ textAlign: 'center', color: '#94a3b8', padding: '30px 0' }}>
-                                    <Loader size={24} style={{ margin: '0 auto 8px', animation: 'spin 2s linear infinite', opacity: 0.6 }} />
-                                    <p style={{ margin: 0, fontSize: '0.9rem' }}>Building history...</p>
-                                </div>
-                            ) : (
-                                <div style={{ textAlign: 'center', color: '#94a3b8', padding: '30px 0' }}>
-                                    <Radio size={24} style={{ margin: '0 auto 8px', opacity: 0.5, color: '#cbd5e1' }} />
-                                    <p style={{ margin: 0, fontSize: '0.9rem' }}>Waiting for predictions</p>
-                                </div>
-                            )}
+
+                                            <div className="vehicle-signal-board">
+                                                <div className="vehicle-signal-row">
+                                                    <div className="vehicle-signal-head">
+                                                        <span>Confidence Track</span>
+                                                        <strong>{analytics.avgConfidence}% avg</strong>
+                                                    </div>
+                                                    <div className="vehicle-confidence-trend">
+                                                        {trendPredictions.map((pred, idx) => {
+                                                            const confidence = Math.max(5, Math.min(100, Math.round((pred.confidence || 0) * 100)));
+                                                            const tone = confidence >= 75 ? 'safe' : confidence >= 45 ? 'warning' : 'danger';
+
+                                                            return (
+                                                                <div
+                                                                    key={`${pred.time}-conf-${idx}`}
+                                                                    className={`vehicle-trend-bar tone-${tone}`}
+                                                                    style={{ height: `${confidence}%` }}
+                                                                    title={`Confidence ${confidence}%`}
+                                                                />
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+
+                                                <div className="vehicle-signal-row">
+                                                    <div className="vehicle-signal-head">
+                                                        <span>Risk Oscillation</span>
+                                                        <strong>{analytics.windowSize} samples</strong>
+                                                    </div>
+                                                    <div className="vehicle-risk-trend">
+                                                        {trendPredictions.map((pred, idx) => {
+                                                            const tone = getStatusTone(pred.status);
+                                                            const riskHeight = tone === 'danger' ? 92 : tone === 'warning' ? 62 : 34;
+
+                                                            return (
+                                                                <div
+                                                                    key={`${pred.time}-risk-${idx}`}
+                                                                    className={`vehicle-trend-bar tone-${tone}`}
+                                                                    style={{ height: `${riskHeight}%` }}
+                                                                    title={`Risk ${pred.status || 'Unknown'}`}
+                                                                />
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="vehicle-ops-note">
+                                                <span>Window: last {analytics.windowSize} inference frames</span>
+                                                <span>
+                                                    Last update: {analytics.lastUpdate ? new Date(analytics.lastUpdate).toLocaleTimeString() : 'N/A'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <EmptyState message="Waiting for predictions..." />
+                                    )
+                                ) : isLoading ? (
+                                    <EmptyState message="Preparing timeline..." loading />
+                                ) : (
+                                    <EmptyState message="No prediction history available" />
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="vehicle-insights-column">
+                        <div className="vehicle-panel">
+                            <div className="vehicle-panel-header">
+                                <span className="vehicle-panel-title"><Eye size={17} /> Eye Behavior Model</span>
+                                <span className={`vehicle-chip tone-${perclosTone}`}>{riskBand}</span>
+                            </div>
+                            <div className="vehicle-panel-body vehicle-eye-body">
+                                {hasPerclosData ? (
+                                    <EyeModel3D
+                                        perclos={vehicleData.perclos.perclos || 0}
+                                        ear={vehicleData.perclos.ear || 0.3}
+                                        status={vehicleData.perclos.status || 'Open'}
+                                    />
+                                ) : isLoading ? (
+                                    <EmptyState message="Initializing eye model..." loading />
+                                ) : (
+                                    <EmptyState message="No eye data available" />
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="vehicle-panel">
+                            <div className="vehicle-panel-header">
+                                <span className="vehicle-panel-title"><Radar size={17} /> Head Position Stability</span>
+                                <span className="vehicle-chip tone-neutral">{headPosition}</span>
+                            </div>
+                            <div className="vehicle-panel-body">
+                                {hasHeadData ? (
+                                    <HeadPositionChart data={headPositionHistory} />
+                                ) : (
+                                    <EmptyState message="Collecting head motion data..." />
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
-
             </section>
 
-            {/* Right Column: Camera & Status */}
-            <aside className="side-panel">
-                
-                {/* Live Camera Feed */}
-                <div className="card camera-card">
-                    <CameraModule />
+            <aside className="vehicle-ops-side">
+                <div className="vehicle-panel vehicle-command-panel">
+                    <div className="vehicle-panel-header">
+                        <span className="vehicle-panel-title"><Gauge size={17} /> Driver Command Status</span>
+                    </div>
+                    <div className="vehicle-panel-body no-pad">
+                        <VehicleStatus />
+                    </div>
                 </div>
-
-                {/* Vehicle Status Widget */}
-                <div className="card fatigue-card">
-                    <VehicleStatus />
-                </div>
-
             </aside>
-
         </div>
     );
 };
