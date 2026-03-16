@@ -9,6 +9,7 @@ export default function VehicleStatus() {
   const { vehicleData, connectionStatus, resetCalibration } = useVehicleContext();
 
   const prediction = vehicleData?.prediction || {};
+  const perclos = vehicleData?.perclos || {};
   const predictedStatus = prediction.status || "Unknown";
   const confidence = typeof prediction.confidence === "number" ? prediction.confidence : 0;
   const microsleep = prediction.microsleep_detected === true;
@@ -16,6 +17,9 @@ export default function VehicleStatus() {
   const connectionMeta = getConnectionMeta(connectionStatus);
 
   const confidencePct = (confidence * 100).toFixed(1);
+  const perclosPct = Number(perclos.perclos || 0).toFixed(1);
+  const earVal = Number(perclos.ear || 0).toFixed(2);
+  const marVal = Number(perclos.mar || 0).toFixed(2);
 
   const handleReset = async () => {
     await resetCalibration();
@@ -65,6 +69,29 @@ export default function VehicleStatus() {
               style={{ width: `${confidencePct}%` }}
             ></div>
           </div>
+        </div>
+      </div>
+
+      <div className="vehicle-command-metrics">
+        <div className="vehicle-command-metric-item">
+          <span className="vehicle-command-metric-label">LINK</span>
+          <strong className={`vehicle-command-metric-value tone-${connectionMeta.tone}`}>{connectionMeta.label}</strong>
+        </div>
+        <div className="vehicle-command-metric-item">
+          <span className="vehicle-command-metric-label">PERCLOS</span>
+          <strong className="vehicle-command-metric-value">{perclosPct}%</strong>
+        </div>
+        <div className="vehicle-command-metric-item">
+          <span className="vehicle-command-metric-label">EAR</span>
+          <strong className="vehicle-command-metric-value">{earVal}</strong>
+        </div>
+        <div className="vehicle-command-metric-item">
+          <span className="vehicle-command-metric-label">MAR</span>
+          <strong className="vehicle-command-metric-value">{marVal}</strong>
+        </div>
+        <div className="vehicle-command-metric-item">
+          <span className="vehicle-command-metric-label">CONFIDENCE</span>
+          <strong className="vehicle-command-metric-value">{confidencePct}%</strong>
         </div>
       </div>
 

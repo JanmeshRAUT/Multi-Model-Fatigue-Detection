@@ -191,3 +191,44 @@
   padding-top: 8px;
 }
 
+.vehicle-command-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.vehicle-command-metric-item {
+  border: 1px solid #d7deea;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 7px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.vehicle-command-metric-label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: #64748b;
+  letter-spacing: 0.06em;
+}
+
+.vehicle-command-metric-value {
+  font-size: 0.84rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.vehicle-command-metric-value.tone-safe {
+  color: #15803d;
+}
+
+.vehicle-command-metric-value.tone-warning {
+  color: #b45309;
+}
+
+.vehicle-command-metric-value.tone-danger {
+  color: #b91c1c;
+}
+

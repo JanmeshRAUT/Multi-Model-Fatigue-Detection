@@ -1,13 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useVehicleContext } from '../context/VehicleContext';
 import './Css/VehicleDashboard.css';
 import './Css/VehicleShared.css';
-import { Eye, Radio, AlertCircle, Loader, Gauge, Radar, Camera, Waves, Clock3 } from 'lucide-react';
+import { Eye, Radio, AlertCircle, Loader, Gauge, Radar, Camera } from 'lucide-react';
 import HeadPositionChart from './HeadPositionChart';
 import VehicleStatus from './VehicleStatus';
 import CameraModule from './CameraModule';
 import EyeModel3D from './EyeModel3D';
-import { getConnectionMeta } from '../utils/vehicleStatus';
 import { getPerclosRiskBand } from '../utils/vehicleStatus';
 
 const EmptyState = ({ message, loading = false }) => (
@@ -28,6 +27,10 @@ const getStatusTone = (status) => {
 const VehicleDashboard = () => {
     const { vehicleData, headPositionHistory, predictionHistory, connectionStatus } = useVehicleContext();
     const [isLoading, setIsLoading] = useState(true);
+    const [cameraOverlayMode, setCameraOverlayMode] = useState('none');
+    const unstableFramesRef = useRef(0);
+    const noSubjectFramesRef = useRef(0);
+    const stableFramesRef = useRef(0);
 
     useEffect(() => {
         if (vehicleData) {
@@ -39,8 +42,6 @@ const VehicleDashboard = () => {
     const head = vehicleData?.head_position || {};
 
     const perclosPct = Number((perclos.perclos || 0).toFixed(1));
-    const confidencePct = Math.round(((vehicleData?.prediction?.confidence || 0) * 100));
-    const connectionMeta = useMemo(() => getConnectionMeta(connectionStatus), [connectionStatus]);
     const recentPredictions = useMemo(() => (predictionHistory || []).slice(-10).reverse(), [predictionHistory]);
     const trendPredictions = useMemo(() => (predictionHistory || []).slice(-24), [predictionHistory]);
 
@@ -50,7 +51,7 @@ const VehicleDashboard = () => {
     const hasHeadData = headPositionHistory.length > 0;
     const headPosition = head.position || 'Unknown';
 
-    const cameraOverlayMode = useMemo(() => {
+    const rawCameraSignal = useMemo(() => {
         const pos = String(head.position || '').toLowerCase();
         const source = String(head.source || '').toLowerCase();
         const x = Number(head.angle_x || 0);
@@ -60,12 +61,44 @@ const VehicleDashboard = () => {
         const noSubject = pos === 'unknown' || source === 'none';
         if (noSubject) return 'no-subject';
 
-        const unstableByAngle = Math.abs(x) >= 20 || Math.abs(y) >= 30 || Math.abs(z) >= 20;
-        const unstableByPosition = !['center', ''].includes(pos);
+        // Less sensitive than before: allow small natural movement without warnings.
+        const unstableByAngle = Math.abs(x) >= 28 || Math.abs(y) >= 40 || Math.abs(z) >= 25;
+        const unstableByPosition = !['center', ''].includes(pos) && (Math.abs(x) >= 18 || Math.abs(y) >= 24);
         if (unstableByAngle || unstableByPosition) return 'unstable';
 
         return 'none';
     }, [head.angle_x, head.angle_y, head.angle_z, head.position, head.source]);
+
+    useEffect(() => {
+        if (rawCameraSignal === 'no-subject') {
+            noSubjectFramesRef.current += 1;
+            unstableFramesRef.current = 0;
+            stableFramesRef.current = 0;
+            if (noSubjectFramesRef.current >= 2) {
+                setCameraOverlayMode('no-subject');
+            }
+            return;
+        }
+
+        noSubjectFramesRef.current = 0;
+
+        if (rawCameraSignal === 'unstable') {
+            unstableFramesRef.current += 1;
+            stableFramesRef.current = 0;
+            if (unstableFramesRef.current >= 4) {
+                setCameraOverlayMode('unstable');
+            }
+            return;
+        }
+
+        unstableFramesRef.current = 0;
+        stableFramesRef.current += 1;
+
+        // Keep warning briefly until movement is stable for a few frames.
+        if (stableFramesRef.current >= 4) {
+            setCameraOverlayMode('none');
+        }
+    }, [rawCameraSignal]);
 
     const analytics = useMemo(() => {
         const fallback = {
@@ -128,33 +161,6 @@ const VehicleDashboard = () => {
     return (
         <div className="vehicle-ops-shell">
             <section className="vehicle-ops-main">
-                <div className="vehicle-metric-rack">
-                    <div className={`vehicle-metric tone-${connectionMeta.tone}`}>
-                        <span className="vehicle-metric-label"><Waves size={14} /> Link</span>
-                        <span className="vehicle-metric-value">{connectionMeta.label}</span>
-                    </div>
-
-                    <div className={`vehicle-metric tone-${perclosTone}`}>
-                        <span className="vehicle-metric-label">PERCLOS</span>
-                        <span className="vehicle-metric-value">{perclosPct}%</span>
-                    </div>
-
-                    <div className="vehicle-metric tone-neutral">
-                        <span className="vehicle-metric-label">EAR</span>
-                        <span className="vehicle-metric-value">{(perclos.ear || 0).toFixed(2)}</span>
-                    </div>
-
-                    <div className="vehicle-metric tone-neutral">
-                        <span className="vehicle-metric-label">MAR</span>
-                        <span className="vehicle-metric-value">{(perclos.mar || 0).toFixed(2)}</span>
-                    </div>
-
-                    <div className="vehicle-metric tone-neutral">
-                        <span className="vehicle-metric-label"><Clock3 size={14} /> Confidence</span>
-                        <span className="vehicle-metric-value">{confidencePct}%</span>
-                    </div>
-                </div>
-
                 <div className="vehicle-ops-content">
                     <div className="vehicle-stage-column">
                         <div className="vehicle-panel vehicle-panel-camera">

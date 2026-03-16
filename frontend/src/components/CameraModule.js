@@ -2,12 +2,14 @@ import React, { useEffect, useRef, useState } from "react";
 import { Wifi, WifiOff, UserMinus } from "lucide-react";
 import { useFatigueData } from "../hooks/useFatigueData";
 import { useFatigueContext } from "../context/FatigueContext";
+import { useModeContext } from "../context/ModeContext";
 import { API_BASE } from "../api";
 
 export default function CameraModule({ vehicleOverlayMode = "none" }) {
   // Always call hooks unconditionally at top level (React Hooks Rules)
   const contextData = useFatigueContext();
   const data = useFatigueData();
+  const mode = useModeContext();
   
   // Now safely check if context is available
   const setFullData = contextData?.setFullData;
@@ -34,8 +36,9 @@ export default function CameraModule({ vehicleOverlayMode = "none" }) {
           videoRef.current.srcObject = stream;
         }
 
-        // Initialize WebSocket
-        const wsUrl = API_BASE.replace(/^http/, 'ws') + '/ws/detect';
+        // Use the vehicle websocket path when Vehicle mode is active.
+        const wsPath = mode?.isVehicleMode ? '/ws/vehicle/detect' : '/ws/detect';
+        const wsUrl = API_BASE.replace(/^http/, 'ws') + wsPath;
         console.log("Connecting to WS:", wsUrl);
         
         const socket = new WebSocket(wsUrl);
@@ -124,7 +127,7 @@ export default function CameraModule({ vehicleOverlayMode = "none" }) {
       if (animationFrameId) cancelAnimationFrame(animationFrameId);
       if (stream) stream.getTracks().forEach((t) => t.stop());
     };
-  }, [setFullData, hasContext]);
+  }, [setFullData, hasContext, mode?.isVehicleMode]);
 
   return (
     <>
