@@ -24,6 +24,7 @@ import FatigueStatus from "./components/FatigueStatus";
 import DrowsinessIndicators from "./components/DrowsinessIndicators";
 import ThemeToggle from "./components/ThemeToggle";
 import VehicleDashboard from "./components/VehicleDashboard";
+import OwnerDashboard from "./components/OwnerDashboard";
 import { useFatigueData } from "./hooks/useFatigueData";
 
 // Wrapper Component to access Context for Theme
@@ -37,6 +38,12 @@ const StandardModelWithSwitcher = ({ selectedModel, setSelectedModel }) => {
 const VehicleModelWithSwitcher = ({ selectedModel, setSelectedModel }) => {
   return (
     <VehicleDashboardWithHeader selectedModel={selectedModel} setSelectedModel={setSelectedModel} />
+  );
+};
+
+const OwnerModelWithSwitcher = ({ selectedModel, setSelectedModel }) => {
+  return (
+    <OwnerDashboardWithHeader selectedModel={selectedModel} setSelectedModel={setSelectedModel} />
   );
 };
 
@@ -76,6 +83,13 @@ const VehicleDashboardWithHeader = ({ selectedModel, setSelectedModel }) => {
               <span className="model-icon">🚗</span>
               <span className="model-text">Vehicle Model</span>
             </button>
+            <button
+              onClick={() => setSelectedModel("owner")}
+              className={`model-btn ${selectedModel === "owner" ? "model-btn-active" : ""}`}
+            >
+              <span className="model-icon">👤</span>
+              <span className="model-text">Owner App</span>
+            </button>
           </div>
 
           <div className="status-badge">
@@ -93,6 +107,68 @@ const VehicleDashboardWithHeader = ({ selectedModel, setSelectedModel }) => {
 
       <main className="dashboard-content vehicle-content">
         <VehicleDashboard />
+      </main>
+    </div>
+  );
+};
+
+const OwnerDashboardWithHeader = ({ selectedModel, setSelectedModel }) => {
+  const { ml_fatigue_status } = useFatigueData();
+
+  const themeClass =
+    ml_fatigue_status === "Fatigued" ? "theme-danger" :
+    (ml_fatigue_status === "Drowsy" ? "theme-warning" : "theme-safe");
+
+  return (
+    <div className={`dashboard-container ${themeClass}`}>
+      <header className="top-header">
+        <div className="brand">
+          <div className="brand-logo">
+            <BrainCircuit size={20} />
+          </div>
+          <span className="brand-name">FatigueGuard Pro</span>
+        </div>
+
+        <div className="header-actions">
+          <div className="model-switcher">
+            <button
+              onClick={() => setSelectedModel("standard")}
+              className={`model-btn ${selectedModel === "standard" ? "model-btn-active" : ""}`}
+            >
+              <span className="model-icon">🧠</span>
+              <span className="model-text">Standard Model</span>
+            </button>
+            <button
+              onClick={() => setSelectedModel("vehicle")}
+              className={`model-btn ${selectedModel === "vehicle" ? "model-btn-active" : ""}`}
+            >
+              <span className="model-icon">🚗</span>
+              <span className="model-text">Vehicle Model</span>
+            </button>
+            <button
+              onClick={() => setSelectedModel("owner")}
+              className={`model-btn ${selectedModel === "owner" ? "model-btn-active" : ""}`}
+            >
+              <span className="model-icon">👤</span>
+              <span className="model-text">Owner App</span>
+            </button>
+          </div>
+
+          <div className="status-badge">
+            <span className="live-dot"></span>
+            Owner View Active
+          </div>
+
+          <ThemeToggle />
+
+          <div className="user-profile" style={{width: 32, height: 32, borderRadius: '50%', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
+            <User size={16} color="#64748b" />
+          </div>
+        </div>
+      </header>
+
+      <main className="dashboard-content" style={{ padding: 16 }}>
+        <OwnerDashboard />
       </main>
     </div>
   );
@@ -133,6 +209,13 @@ const DashboardContent = ({ selectedModel, setSelectedModel }) => {
             >
               <span className="model-icon">🚗</span>
               <span className="model-text">Vehicle Model</span>
+            </button>
+            <button
+              onClick={() => setSelectedModel("owner")}
+              className={`model-btn ${selectedModel === "owner" ? "model-btn-active" : ""}`}
+            >
+              <span className="model-icon">👤</span>
+              <span className="model-text">Owner App</span>
             </button>
           </div>
 
@@ -232,7 +315,7 @@ const DashboardContent = ({ selectedModel, setSelectedModel }) => {
 
 function App() {
   const [mounted, setMounted] = useState(false);
-  const [selectedModel, setSelectedModel] = useState("standard"); // "standard" or "vehicle"
+  const [selectedModel, setSelectedModel] = useState("standard"); // "standard" or "vehicle" or "owner"
 
   useEffect(() => {
     setMounted(true);
@@ -242,21 +325,26 @@ function App() {
 
   return (
     <ThemeProvider>
-      <ModeProvider selectedMode={selectedModel}>
+      <ModeProvider selectedMode={selectedModel === "owner" ? "standard" : selectedModel}>
         {selectedModel === "vehicle" ? (
-          // Vehicle Model (Standard Model is COMPLETELY DISABLED)
           <VehicleProvider>
-            <VehicleModelWithSwitcher 
-              selectedModel={selectedModel} 
-              setSelectedModel={setSelectedModel} 
+            <VehicleModelWithSwitcher
+              selectedModel={selectedModel}
+              setSelectedModel={setSelectedModel}
+            />
+          </VehicleProvider>
+        ) : selectedModel === "owner" ? (
+          <VehicleProvider>
+            <OwnerModelWithSwitcher
+              selectedModel={selectedModel}
+              setSelectedModel={setSelectedModel}
             />
           </VehicleProvider>
         ) : (
-          // Standard Fatigue Model (Vehicle Model is COMPLETELY DISABLED)
           <FatigueProvider>
-            <StandardModelWithSwitcher 
-              selectedModel={selectedModel} 
-              setSelectedModel={setSelectedModel} 
+            <StandardModelWithSwitcher
+              selectedModel={selectedModel}
+              setSelectedModel={setSelectedModel}
             />
           </FatigueProvider>
         )}

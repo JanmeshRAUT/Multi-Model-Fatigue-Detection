@@ -40,6 +40,23 @@ cached_prediction = {"status": "Waiting...", "confidence": 0.0}
 cached_vehicle_prediction = {"status": "Waiting...", "confidence": 0.0}
 ML_INTERVAL = config.ML_INTERVAL
 
+# Standard Mode: keep sensor head pose prioritized during brief sensor packet drops.
+SENSOR_HEAD_POSE_GRACE_SECONDS = 1.5
+# If IMU keeps reporting near-rest defaults, treat it as unreliable for head-pose control.
+DEFAULT_IMU_AX_ABS_MAX = 0.05
+DEFAULT_IMU_AY_ABS_MAX = 0.05
+DEFAULT_IMU_AZ_CENTER = 9.70
+DEFAULT_IMU_AZ_TOLERANCE = 0.20
+FAILED_IMU_ZERO_ABS_MAX = 0.05
+last_sensor_head_pose = {
+    "position": "Unknown",
+    "angle_x": 0.0,
+    "angle_y": 0.0,
+    "angle_z": 0.0,
+    "timestamp": 0,
+    "source": "None",
+}
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
@@ -185,7 +202,7 @@ async def vehicle_websocket_endpoint(websocket: WebSocket):
 
 # --- INTERNAL HELPER ---
 async def get_combined_data_internal():
-    global last_ml_time, cached_prediction
+    global last_ml_time, cached_prediction, last_sensor_head_pose
     
     hp = {
         "position": "Unknown",
@@ -197,16 +214,39 @@ async def get_combined_data_internal():
     }
     
     current_time = time.time()
+    sensor_invalid_default_rest = False
+    sensor_invalid_zero_failure = False
     
     # SENSOR / HEAD POSE LOGIC
     with sensor_lock:
-        sensor_active = (
+        sensor_head_pose_active = (
             latest_sensor_data.get("timestamp") is not None and 
             (current_time - latest_sensor_data["timestamp"] < config.SENSOR_TIMEOUT) and
-            latest_sensor_data.get("ax") is not None
+            latest_sensor_data.get("ax") is not None and
+            latest_sensor_data.get("ay") is not None and
+            latest_sensor_data.get("az") is not None
         )
+
+        if sensor_head_pose_active:
+            ax = float(latest_sensor_data.get("ax", 0.0) or 0.0)
+            ay = float(latest_sensor_data.get("ay", 0.0) or 0.0)
+            az = float(latest_sensor_data.get("az", 0.0) or 0.0)
+            looks_like_default_rest = (
+                abs(ax) <= DEFAULT_IMU_AX_ABS_MAX and
+                abs(ay) <= DEFAULT_IMU_AY_ABS_MAX and
+                abs(az - DEFAULT_IMU_AZ_CENTER) <= DEFAULT_IMU_AZ_TOLERANCE
+            )
+            looks_like_zero_failure = (
+                abs(ax) <= FAILED_IMU_ZERO_ABS_MAX and
+                abs(ay) <= FAILED_IMU_ZERO_ABS_MAX and
+                abs(az) <= FAILED_IMU_ZERO_ABS_MAX
+            )
+            if looks_like_default_rest or looks_like_zero_failure:
+                sensor_invalid_default_rest = True
+                sensor_invalid_zero_failure = looks_like_zero_failure
+                sensor_head_pose_active = False
         
-        if sensor_active:
+        if sensor_head_pose_active:
             pos, ang_x, ang_y, ang_z = calculate_head_position(
                 latest_sensor_data["ax"],
                 latest_sensor_data["ay"],
@@ -220,8 +260,22 @@ async def get_combined_data_internal():
                 "timestamp": int(time.time()),
                 "source": "Sensor"
             }
+            last_sensor_head_pose = hp.copy()
 
-    if not sensor_active:
+    sensor_pose_recent = (
+        last_sensor_head_pose.get("source") == "Sensor" and
+        (current_time - float(last_sensor_head_pose.get("timestamp", 0))) < SENSOR_HEAD_POSE_GRACE_SECONDS and
+        not sensor_invalid_default_rest and
+        not sensor_invalid_zero_failure
+    )
+
+    if not sensor_head_pose_active and sensor_pose_recent:
+        hp = {
+            **last_sensor_head_pose,
+            "source": "Sensor"
+        }
+
+    if not sensor_head_pose_active and not sensor_pose_recent:
         with cv_angles_lock:
             c_pitch = cv_head_angles["pitch"]
             c_yaw = cv_head_angles["yaw"]
