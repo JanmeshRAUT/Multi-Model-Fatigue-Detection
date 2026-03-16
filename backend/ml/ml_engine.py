@@ -6,9 +6,15 @@ from collections import deque
 import time
 
 class MLEngine:
-    def __init__(self, model_path="fatigue_model.pkl"):
+    def __init__(self, model_path="fatigue_model.pkl", scaler_path=None, label_encoder_path=None, fallback_model_path=None):
         self.model = None
         self.model_path = model_path
+        self.scaler_path = scaler_path
+        self.label_encoder_path = label_encoder_path
+        self.fallback_model_path = fallback_model_path
+        self.scaler = None
+        self.label_encoder = None
+        self.use_xgb_pipeline = False
         self.labels = {0: "Alert", 1: "Drowsy", 2: "Fatigued"}
         
         # INDUSTRIAL UPGRADE: Feature Window
@@ -43,16 +49,121 @@ class MLEngine:
     
 
     def load_model(self):
-        """Loads the trained ML model from disk."""
-        if not os.path.exists(self.model_path):
-            print(f"[ML] ⚠️ Model file not found at {self.model_path}.")
+        """Loads the trained ML model from disk, with optional fallback support."""
+        candidate_paths = [self.model_path]
+        if self.fallback_model_path and self.fallback_model_path != self.model_path:
+            candidate_paths.append(self.fallback_model_path)
+
+        loaded_path = None
+        for path in candidate_paths:
+            if not path or not os.path.exists(path):
+                continue
+            try:
+                self.model = joblib.load(path)
+                loaded_path = path
+                break
+            except Exception as e:
+                print(f"[ML] ❌ Failed to load model at {path}: {e}")
+
+        if self.model is None:
+            print(f"[ML] ⚠️ No model file found/loaded. Tried: {candidate_paths}")
             return
 
+        loaded_is_xgb = self._is_xgb_model(self.model)
+
+        if loaded_is_xgb:
+            if self.scaler_path and os.path.exists(self.scaler_path):
+                try:
+                    self.scaler = joblib.load(self.scaler_path)
+                except Exception as e:
+                    print(f"[ML] ⚠️ Failed to load scaler at {self.scaler_path}: {e}")
+
+            if self.label_encoder_path and os.path.exists(self.label_encoder_path):
+                try:
+                    self.label_encoder = joblib.load(self.label_encoder_path)
+                except Exception as e:
+                    print(f"[ML] ⚠️ Failed to load label encoder at {self.label_encoder_path}: {e}")
+
+            self.use_xgb_pipeline = self.scaler is not None
+            if self.use_xgb_pipeline:
+                print(f"[ML] ✅ XGBoost pipeline loaded from {loaded_path}")
+            else:
+                print(f"[ML] ⚠️ XGBoost model loaded but scaler missing. Falling back to legacy feature path.")
+        else:
+            self.scaler = None
+            self.label_encoder = None
+            self.use_xgb_pipeline = False
+            print(f"[ML] ✅ Legacy model loaded from {loaded_path}")
+
+    def _is_xgb_model(self, model):
+        """Detect whether a loaded model object is an XGBoost estimator."""
+        if model is None:
+            return False
+        module_name = getattr(type(model), "__module__", "")
+        class_name = getattr(type(model), "__name__", "")
+        return ("xgboost" in module_name.lower()) or class_name.startswith("XGB")
+
+    def _build_xgb_features(self, vision_data, sensor_data):
+        ear = float(vision_data.get("ear", 0.3) or 0.3)
+        mar = float(vision_data.get("mar", 0.0) or 0.0)
+        pitch = float(vision_data.get("head_angle_x", 0.0) or 0.0)
+        yaw = float(vision_data.get("head_angle_y", 0.0) or 0.0)
+        roll = float(vision_data.get("head_angle_z", 0.0) or 0.0)
+        perclos = float(vision_data.get("perclos", 0.0) or 0.0)
+
+        if perclos > 1.0:
+            perclos = perclos / 100.0
+
+        heart_rate = float(sensor_data.get("hr", 75.0) or 75.0)
+        spo2 = float(sensor_data.get("spo2", 98.0) or 98.0)
+        temperature = float(sensor_data.get("temperature", 37.0) or 37.0)
+
+        heart_rate = float(np.clip(heart_rate, 40.0, 180.0))
+        spo2 = float(np.clip(spo2, 80.0, 100.0))
+        temperature = float(np.clip(temperature, 34.0, 41.0))
+
+        eps = 1e-6
+        ear_mar_ratio = ear / (mar + eps)
+        perclos_blink_interaction = perclos * float(vision_data.get("blink_rate", 0.0) or 0.0)
+        head_motion_sum = abs(pitch) + abs(yaw) + abs(roll)
+
+        cols = [
+            "EAR", "MAR", "PERCLOS", "blink_rate", "head_pitch", "head_yaw", "head_roll",
+            "heart_rate", "spo2", "temperature", "ear_mar_ratio", "perclos_blink_interaction", "head_motion_sum",
+        ]
+        values = [
+            ear, mar, perclos, float(vision_data.get("blink_rate", 0.0) or 0.0), pitch, yaw, roll,
+            heart_rate, spo2, temperature, ear_mar_ratio, perclos_blink_interaction, head_motion_sum,
+        ]
+        return pd.DataFrame([values], columns=cols)
+
+    def _get_final_label(self, state_index):
+        class_value = state_index
+        if hasattr(self.model, "classes_") and len(getattr(self.model, "classes_", [])) > state_index:
+            class_value = self.model.classes_[state_index]
+
+        if self.label_encoder is not None:
+            try:
+                decoded = self.label_encoder.inverse_transform([class_value])[0]
+                if isinstance(decoded, str):
+                    normalized = decoded.strip().lower()
+                    if normalized in ("0", "1", "2"):
+                        return self.labels.get(int(normalized), self.labels.get(state_index, "Unknown"))
+                    if normalized in ("alert", "drowsy", "fatigued"):
+                        return normalized.capitalize()
+                    return decoded
+                return self.labels.get(int(decoded), self.labels.get(state_index, "Unknown"))
+            except Exception:
+                pass
+
         try:
-            self.model = joblib.load(self.model_path)
-            print(f"[ML] ✅ Model loaded successfully from {self.model_path}")
-        except Exception as e:
-            print(f"[ML] ❌ Failed to load model: {e}")
+            return self.labels.get(int(class_value), self.labels.get(state_index, "Unknown"))
+        except Exception:
+            return self.labels.get(state_index, "Unknown")
+
+    def _to_python_probs(self, probs):
+        """Convert numpy probability arrays/scalars to plain Python floats for JSON serialization."""
+        return [round(float(p), 2) for p in probs]
 
     def reset_calibration(self):
         """Resets the adaptive baseline for a new user/session."""
@@ -108,7 +219,7 @@ class MLEngine:
             return {
                 "status": self.labels.get(self.current_state, "Unknown"),
                 "confidence": round(float(np.max(self.ema_probs)), 2) if self.ema_probs is not None else 0,
-                "raw_probs": [round(p, 2) for p in self.ema_probs] if self.ema_probs is not None else [1,0,0],
+                "raw_probs": self._to_python_probs(self.ema_probs) if self.ema_probs is not None else [1.0, 0.0, 0.0],
                 "flag": f"SKIPPED_{status.upper().replace(' ', '_')}"
             }
 
@@ -235,10 +346,22 @@ class MLEngine:
                 'temperature_mean'
             ]
             X_input = pd.DataFrame([feature_vector], columns=feature_names)
-            
+
             # --- 3. PROBABILISTIC INFERENCE ---
             # Get raw probabilities [Alert%, Drowsy%, Fatigued%]
-            raw_probs = self.model.predict_proba(X_input)[0]
+            if self.use_xgb_pipeline:
+                xgb_df = self._build_xgb_features({
+                    **vision_data,
+                    "head_angle_z": vision_data.get("head_angle_z", 0.0),
+                }, {
+                    **sensor_data,
+                    "hr": curr_hr,
+                    "temperature": curr_temp,
+                })
+                x_scaled = self.scaler.transform(xgb_df)
+                raw_probs = self.model.predict_proba(x_scaled)[0]
+            else:
+                raw_probs = self.model.predict_proba(X_input)[0]
 
             # --- 3.5 LOGICAL SENSOR OVERRIDES (Soft Integration) ---
             # Instead of a hard return, we bias the probabilities so the 
@@ -302,7 +425,7 @@ class MLEngine:
             else:
                 self.state_persistence = 0
             
-            final_label = self.labels.get(self.current_state, "Unknown")
+            final_label = self._get_final_label(self.current_state)
             
             # Ensure we have a flag if the model detects fatigue but no sensor override exists
             if sensor_condition_flag is None and self.current_state > 0:
@@ -311,7 +434,7 @@ class MLEngine:
             return {
                 "status": final_label,
                 "confidence": round(float(confidence), 2),
-                "raw_probs": [round(p, 2) for p in self.ema_probs],
+                "raw_probs": self._to_python_probs(self.ema_probs),
                 "flag": sensor_condition_flag
             }
             

@@ -4,7 +4,14 @@ import { RoundedBox, Environment, ContactShadows } from "@react-three/drei";
 import * as THREE from "three";
 import "./Css/EyeModel.css";
 
-function EyeRobotModel({ perclos = 0, ear = 0.3, status = "Open" }) {
+function EyeRobotModel({
+  perclos = 0,
+  ear = 0.3,
+  status = "Alert",
+  eyeState = "Open",
+  yaw = 0,
+  pitch = 0,
+}) {
   const groupRef = useRef();
   const leftEyeCoreRef = useRef();
   const rightEyeCoreRef = useRef();
@@ -59,9 +66,14 @@ function EyeRobotModel({ perclos = 0, ear = 0.3, status = "Open" }) {
       0,
       0.72
     );
-    const eyeOpen = THREE.MathUtils.clamp(1 - blinkAmount * 0.9 - fatigueSquint, 0.1, 1);
-    const gazeOffsetX = Math.sin(time * 0.85) * 0.018;
-    const gazeOffsetY = Math.cos(time * 0.55) * 0.01;
+    const eyeClosedBySignal = ["closed", "no face"].includes(String(eyeState).toLowerCase());
+    const baseEyeOpen = eyeClosedBySignal ? 0.14 : 1;
+    const eyeOpen = THREE.MathUtils.clamp(baseEyeOpen - blinkAmount * 0.9 - fatigueSquint, 0.1, 1);
+
+    const clampedYaw = THREE.MathUtils.clamp(Number(yaw) || 0, -30, 30);
+    const clampedPitch = THREE.MathUtils.clamp(Number(pitch) || 0, -20, 20);
+    const gazeOffsetX = (clampedYaw / 30) * 0.03 + Math.sin(time * 0.85) * 0.008;
+    const gazeOffsetY = (-clampedPitch / 20) * 0.018 + Math.cos(time * 0.55) * 0.006;
 
     if (groupRef.current) {
       groupRef.current.rotation.z = Math.sin(time * 0.33) * 0.016;
@@ -97,7 +109,7 @@ function EyeRobotModel({ perclos = 0, ear = 0.3, status = "Open" }) {
       pulseArcRef.current.scale.x = THREE.MathUtils.lerp(0.4, 1, eyeOpen);
       pulseArcRef.current.material.emissiveIntensity = THREE.MathUtils.lerp(0.35, 1.3, eyeOpen);
       pulseArcRef.current.material.opacity = THREE.MathUtils.lerp(0.35, 0.82, eyeOpen);
-      pulseArcRef.current.visible = status !== "Closed";
+      pulseArcRef.current.visible = !eyeClosedBySignal;
     }
   });
 
@@ -179,10 +191,20 @@ function EyeRobotModel({ perclos = 0, ear = 0.3, status = "Open" }) {
   );
 }
 
-export default function EyeModel3D({ perclos = 0, ear = 0.3, status = "Open" }) {
+export default function EyeModel3D({
+  perclos = 0,
+  ear = 0.3,
+  status = "Alert",
+  eyeState = "Open",
+  yaw = 0,
+  pitch = 0,
+}) {
   const safePerclos = typeof perclos === "number" ? perclos : 0;
   const safeEar = typeof ear === "number" ? ear : 0.3;
-  const safeStatus = typeof status === "string" ? status : "Open";
+  const safeStatus = typeof status === "string" ? status : "Alert";
+  const safeEyeState = typeof eyeState === "string" ? eyeState : "Open";
+  const safeYaw = typeof yaw === "number" ? yaw : 0;
+  const safePitch = typeof pitch === "number" ? pitch : 0;
 
   return (
     <div className="eye-model-container">
@@ -191,7 +213,14 @@ export default function EyeModel3D({ perclos = 0, ear = 0.3, status = "Open" }) 
         <spotLight position={[10, 10, 10]} angle={0.2} penumbra={1} intensity={1} castShadow />
         <pointLight position={[-8, -8, -8]} intensity={0.4} />
 
-        <EyeRobotModel perclos={safePerclos} ear={safeEar} status={safeStatus} />
+        <EyeRobotModel
+          perclos={safePerclos}
+          ear={safeEar}
+          status={safeStatus}
+          eyeState={safeEyeState}
+          yaw={safeYaw}
+          pitch={safePitch}
+        />
 
         <ContactShadows position={[0, -1.26, 0]} opacity={0.35} scale={7} blur={2.3} far={4} />
         <Environment preset="city" />

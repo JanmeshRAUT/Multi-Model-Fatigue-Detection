@@ -49,7 +49,12 @@ async def lifespan(app: FastAPI):
     
     global ml_engine, vehicle_ml_engine
     try:
-        ml_engine = MLEngine(model_path=config.MODEL_PATH)
+        ml_engine = MLEngine(
+            model_path=config.MODEL_PATH,
+            scaler_path=getattr(config, "MODEL_SCALER_PATH", None),
+            label_encoder_path=getattr(config, "MODEL_LABEL_ENCODER_PATH", None),
+            fallback_model_path=getattr(config, "LEGACY_MODEL_PATH", None),
+        )
         logger.info("✅ ML Engine Initialized")
     except Exception as e:
         logger.error(f"❌ Failed to initialize ML Engine: {e}")

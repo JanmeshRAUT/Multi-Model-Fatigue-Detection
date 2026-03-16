@@ -204,7 +204,16 @@ class VehicleMLEngine:
         if self.label_encoder is not None:
             try:
                 decoded = self.label_encoder.inverse_transform([self.current_state])[0]
-                output_label = self.labels.get(int(decoded), output_label)
+                if isinstance(decoded, str):
+                    normalized = decoded.strip().lower()
+                    if normalized in ("0", "1", "2"):
+                        output_label = self.labels.get(int(normalized), output_label)
+                    elif normalized in ("alert", "drowsy", "fatigued"):
+                        output_label = normalized.capitalize()
+                    else:
+                        output_label = decoded
+                else:
+                    output_label = self.labels.get(int(decoded), output_label)
             except Exception:
                 pass
 

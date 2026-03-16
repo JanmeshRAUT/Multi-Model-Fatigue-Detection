@@ -74,7 +74,7 @@ export default function FatigueStatus() {
           color = "low";
           confidence = 0.0;
       } else {
-          predictedClass = ml_fatigue_status.toUpperCase();
+           predictedClass = String(ml_fatigue_status || "Unknown").toUpperCase();
           
           if (predictedClass === "DROWSY") color = "medium";
           if (predictedClass === "FATIGUED") color = "high";

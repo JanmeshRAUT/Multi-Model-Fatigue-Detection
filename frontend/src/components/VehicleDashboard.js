@@ -269,7 +269,10 @@ const VehicleDashboard = () => {
                                     <EyeModel3D
                                         perclos={vehicleData.perclos.perclos || 0}
                                         ear={vehicleData.perclos.ear || 0.3}
-                                        status={vehicleData.perclos.status || 'Open'}
+                                        status={vehicleData?.prediction?.status || 'Alert'}
+                                        eyeState={vehicleData?.perclos?.status || 'Open'}
+                                        yaw={vehicleData?.head_position?.angle_y || 0}
+                                        pitch={vehicleData?.head_position?.angle_x || 0}
                                     />
                                 ) : isLoading ? (
                                     <EmptyState message="Initializing eye model..." loading />

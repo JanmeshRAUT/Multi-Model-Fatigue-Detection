@@ -14,7 +14,10 @@ class Config:
     USE_MOCK_DATA = False # Set to True to enable random data generation when sensors are disconnected
     
     # --- ML Engine Configuration ---
-    MODEL_PATH = os.path.join(os.path.dirname(__file__), "ml", "models", "fatigue_model.pkl")
+    MODEL_PATH = os.path.join(os.path.dirname(__file__), "ml", "models", "xgboost_independent.joblib")
+    LEGACY_MODEL_PATH = os.path.join(os.path.dirname(__file__), "ml", "models", "fatigue_model.pkl")
+    MODEL_SCALER_PATH = os.path.join(os.path.dirname(__file__), "ml", "models", "xgb_scaler.joblib")
+    MODEL_LABEL_ENCODER_PATH = os.path.join(os.path.dirname(__file__), "ml", "models", "xgb_label_encoder.joblib")
     LEGACY_VEHICLE_MODEL_PATH = os.path.join(os.path.dirname(__file__), "ml", "models", "vehicle_fatigue_model.pkl")
     VEHICLE_MODEL_PATH = os.path.join(os.path.dirname(__file__), "ml", "models", "xgboost_independent.joblib")
     VEHICLE_SCALER_PATH = os.path.join(os.path.dirname(__file__), "ml", "models", "xgb_scaler.joblib")
