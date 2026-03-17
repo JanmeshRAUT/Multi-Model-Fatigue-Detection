@@ -31,7 +31,13 @@ export default function CameraModule({ vehicleOverlayMode = "none" }) {
     async function startCamera() {
       try {
         setCameraStatus("Starting...");
-        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: "user",
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }
+        });
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
         }
@@ -138,7 +144,7 @@ export default function CameraModule({ vehicleOverlayMode = "none" }) {
           playsInline
           muted
           className="camera-feed-video"
-          style={{ transform: "scaleX(-1)", width: '100%', height: '100%', objectFit: 'cover' }}
+          style={{ transform: "scaleX(-1)", width: '100%', height: '100%', objectFit: 'contain' }}
         />
         <canvas ref={canvasRef} style={{ display: "none" }} />
 
