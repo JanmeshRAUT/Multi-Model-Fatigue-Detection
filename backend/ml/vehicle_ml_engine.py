@@ -1,8 +1,17 @@
 import os
-import joblib
+import json
 import numpy as np
-import pandas as pd
 from collections import deque
+
+try:
+    import onnxruntime as ort
+except Exception:
+    ort = None
+
+try:
+    import joblib
+except Exception:
+    joblib = None
 
 
 class VehicleMLEngine:
@@ -16,6 +25,10 @@ class VehicleMLEngine:
         self.scaler = None
         self.label_encoder = None
         self.use_xgb_pipeline = False
+        self.use_onnx = False
+        self.onnx_session = None
+        self.onnx_input_name = None
+        self.onnx_scaler = None
         self.labels = {0: "Alert", 1: "Drowsy", 2: "Fatigued"}
 
         self.window_size = 20
@@ -25,6 +38,7 @@ class VehicleMLEngine:
         self.alpha = 0.15
 
         self.microsleep_max_frames = 10
+        self.microsleep_max_seconds = 1.2
 
         self.current_state = 0
         self.state_persistence = 0
@@ -39,8 +53,29 @@ class VehicleMLEngine:
         self.load_model()
 
     def load_model(self):
+        if self.model_path and self.model_path.lower().endswith(".onnx"):
+            if ort is None:
+                print("[VehicleML] ❌ onnxruntime is not installed. Cannot load ONNX model.")
+            elif os.path.exists(self.model_path):
+                try:
+                    self.onnx_session = ort.InferenceSession(
+                        self.model_path,
+                        providers=["CPUExecutionProvider"],
+                    )
+                    self.onnx_input_name = self.onnx_session.get_inputs()[0].name
+                    self.use_onnx = True
+                    self._load_onnx_scaler()
+                    print(f"[VehicleML] ONNX model loaded: {self.model_path}")
+                    return
+                except Exception as e:
+                    print(f"[VehicleML] Failed to load ONNX model: {e}")
+
         if not os.path.exists(self.model_path):
             print(f"[VehicleML] Model file not found at {self.model_path}")
+            return
+
+        if joblib is None:
+            print("[VehicleML] ⚠️ joblib not installed; non-ONNX fallback disabled.")
             return
 
         try:
@@ -57,6 +92,42 @@ class VehicleMLEngine:
                 print(f"[VehicleML] Legacy model loaded: {self.model_path}")
         except Exception as e:
             print(f"[VehicleML] Failed to load model: {e}")
+
+    def _load_onnx_scaler(self):
+        if not self.scaler_path:
+            return
+        if not os.path.exists(self.scaler_path):
+            print(f"[VehicleML] ONNX scaler config not found at {self.scaler_path}. Using raw features.")
+            return
+        try:
+            with open(self.scaler_path, "r", encoding="utf-8") as f:
+                scaler_data = json.load(f)
+            mean = np.array(scaler_data.get("mean", []), dtype=np.float32)
+            scale = np.array(scaler_data.get("scale", []), dtype=np.float32)
+            if mean.size and scale.size and mean.size == scale.size:
+                self.onnx_scaler = {"mean": mean, "scale": np.where(scale == 0, 1.0, scale)}
+                print(f"[VehicleML] ONNX scaler loaded: {self.scaler_path}")
+        except Exception as e:
+            print(f"[VehicleML] Failed to load ONNX scaler config: {e}")
+
+    def _apply_onnx_scaling(self, features):
+        if not self.onnx_scaler:
+            return features.astype(np.float32)
+        mean = self.onnx_scaler["mean"]
+        scale = self.onnx_scaler["scale"]
+        if features.shape[1] != mean.shape[0]:
+            print("[VehicleML] ONNX scaler dimension mismatch. Using raw features.")
+            return features.astype(np.float32)
+        return ((features - mean) / scale).astype(np.float32)
+
+    def _extract_onnx_probs(self, outputs):
+        for out in outputs:
+            if isinstance(out, np.ndarray) and out.ndim == 2 and out.shape[0] >= 1:
+                return out[0]
+            if isinstance(out, list) and out and isinstance(out[0], dict):
+                probs = [v for _, v in sorted(out[0].items(), key=lambda kv: int(kv[0]))]
+                return np.array(probs, dtype=np.float32)
+        raise ValueError("Unable to parse ONNX probability outputs")
 
     def reset_calibration(self):
         self.base_ear = 0.32
@@ -114,18 +185,14 @@ class VehicleMLEngine:
         perclos_blink_interaction = perclos * float(vision_data.get("blink_rate", 0.0) or 0.0)
         head_motion_sum = abs(pitch) + abs(yaw) + abs(roll)
 
-        cols = [
-            "EAR", "MAR", "PERCLOS", "blink_rate", "head_pitch", "head_yaw", "head_roll",
-            "heart_rate", "spo2", "temperature", "ear_mar_ratio", "perclos_blink_interaction", "head_motion_sum",
-        ]
         values = [
             ear, mar, perclos, float(vision_data.get("blink_rate", 0.0) or 0.0), pitch, yaw, roll,
             heart_rate, spo2, temperature, ear_mar_ratio, perclos_blink_interaction, head_motion_sum,
         ]
-        return pd.DataFrame([values], columns=cols)
+        return np.array([values], dtype=np.float32)
 
     def predict(self, vision_data, sensor_data=None):
-        if self.model is None:
+        if self.model is None and not self.use_onnx:
             return {"status": "Unknown", "confidence": 0, "raw_probs": [0, 0, 0], "microsleep_detected": False}
 
         if sensor_data is None:
@@ -151,6 +218,7 @@ class VehicleMLEngine:
         roll = float(vision_data.get("roll", 0.0) or 0.0)
         perclos = float(vision_data.get("perclos", 0.0) or 0.0)
         perclos_ratio = perclos / 100.0 if perclos > 1.0 else perclos
+        closed_duration_sec = float(vision_data.get("closed_duration_sec", 0.0) or 0.0)
 
         self.last_vision_values = {"ear": ear, "mar": mar}
 
@@ -169,9 +237,14 @@ class VehicleMLEngine:
         ])
 
         try:
-            if self.use_xgb_pipeline:
-                xgb_df = self._build_xgb_features(vision_data, sensor_data)
-                x_scaled = self.scaler.transform(xgb_df)
+            if self.use_onnx and self.onnx_session is not None and self.onnx_input_name:
+                xgb_features = self._build_xgb_features(vision_data, sensor_data)
+                x_scaled = self._apply_onnx_scaling(xgb_features)
+                outputs = self.onnx_session.run(None, {self.onnx_input_name: x_scaled})
+                probs = self._extract_onnx_probs(outputs)
+            elif self.use_xgb_pipeline:
+                xgb_features = self._build_xgb_features(vision_data, sensor_data)
+                x_scaled = self.scaler.transform(xgb_features)
                 probs = self.model.predict_proba(x_scaled)[0]
             else:
                 probs = self.model.predict_proba([legacy_x])[0]
@@ -183,6 +256,11 @@ class VehicleMLEngine:
             self.ema_probs = probs
         else:
             self.ema_probs = self.alpha * probs + (1 - self.alpha) * self.ema_probs
+
+        if closed_duration_sec >= self.microsleep_max_seconds:
+            self.current_state = 2
+            self.ema_probs = np.array([0, 0, 1])
+            self.state_persistence = 0
 
         # Safety override: very high PERCLOS should immediately force Fatigued.
         if perclos_ratio > 0.55:
@@ -211,7 +289,7 @@ class VehicleMLEngine:
         else:
             self.state_persistence = 0
 
-        microsleep_detected = bool(perclos_ratio > 0.80 or ear < 0.15)
+        microsleep_detected = bool(perclos_ratio > 0.80 or ear < 0.15 or closed_duration_sec >= self.microsleep_max_seconds)
         confidence = float(self.ema_probs[self.current_state])
         output_label = self.labels[self.current_state]
 

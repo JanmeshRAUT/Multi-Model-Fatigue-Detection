@@ -1,5 +1,5 @@
-import React from "react";
-import { Cpu, ShieldAlert, RotateCcw } from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
+import { Cpu, ShieldAlert, RotateCcw, Volume2, VolumeX } from "lucide-react";
 import { useVehicleContext } from "../context/VehicleContext";
 import { getConnectionMeta, getPerclosRiskBand, getPredictionMeta } from "../utils/vehicleStatus";
 import "./Css/VehicleStatus.css";
@@ -16,6 +16,11 @@ function formatLabel(value) {
 
 export default function VehicleStatus() {
   const { vehicleData, connectionStatus, resetCalibration } = useVehicleContext();
+  const [isMuted, setIsMuted] = useState(false);
+  const prevStatusRef = useRef("Unknown");
+  const prevMicrosleepRef = useRef(false);
+  const alertAudioRef = useRef(null);
+  const microsleepAudioRef = useRef(null);
 
   const prediction = vehicleData?.prediction || {};
   const perclos = vehicleData?.perclos || {};
@@ -42,6 +47,79 @@ export default function VehicleStatus() {
     ? "Cautionary signal shift detected"
     : "Signal profile remains stable";
 
+  useEffect(() => {
+    alertAudioRef.current = new Audio("/sounds/alert.mp3");
+    alertAudioRef.current.loop = true;
+    alertAudioRef.current.volume = 1.0;
+    alertAudioRef.current.preload = "auto";
+
+    microsleepAudioRef.current = new Audio("/sounds/alert.mp3");
+    microsleepAudioRef.current.loop = true;
+    microsleepAudioRef.current.volume = 1.0;
+    microsleepAudioRef.current.playbackRate = 1.2;
+    microsleepAudioRef.current.preload = "auto";
+
+    return () => {
+      [alertAudioRef.current, microsleepAudioRef.current].forEach((audio) => {
+        if (!audio) return;
+        audio.pause();
+        audio.currentTime = 0;
+      });
+    };
+  }, []);
+
+  useEffect(() => {
+    const alertAudio = alertAudioRef.current;
+    const microsleepAudio = microsleepAudioRef.current;
+    if (!alertAudio || !microsleepAudio) return;
+
+    const prevStatus = prevStatusRef.current;
+    const prevMicrosleep = prevMicrosleepRef.current;
+    const isHigh = predictedStatus === "Fatigued";
+
+    if (!isMuted && microsleep) {
+      if (!prevMicrosleep || microsleepAudio.paused) {
+        microsleepAudio.currentTime = 0;
+        microsleepAudio.play().catch(() => {});
+      }
+      if (!alertAudio.paused) {
+        alertAudio.pause();
+        alertAudio.currentTime = 0;
+      }
+    } else if (!isMuted && isHigh) {
+      if (alertAudio.paused || prevStatus !== "Fatigued") {
+        alertAudio.currentTime = 0;
+        alertAudio.play().catch(() => {});
+      }
+      if (!microsleepAudio.paused) {
+        microsleepAudio.pause();
+        microsleepAudio.currentTime = 0;
+      }
+    } else {
+      if (!alertAudio.paused) {
+        alertAudio.pause();
+        alertAudio.currentTime = 0;
+      }
+      if (!microsleepAudio.paused) {
+        microsleepAudio.pause();
+        microsleepAudio.currentTime = 0;
+      }
+    }
+
+    prevStatusRef.current = predictedStatus;
+    prevMicrosleepRef.current = microsleep;
+  }, [predictedStatus, microsleep, isMuted]);
+
+  const unlockAudio = () => {
+    [alertAudioRef.current, microsleepAudioRef.current].forEach((audio) => {
+      if (!audio) return;
+      audio.play().then(() => {
+        audio.pause();
+        audio.currentTime = 0;
+      }).catch(() => {});
+    });
+  };
+
   const handleReset = async () => {
     await resetCalibration();
   };
@@ -59,6 +137,16 @@ export default function VehicleStatus() {
           <span className={`vehicle-status-chip tone-${connectionMeta.tone}`}>{connectionMeta.label}</span>
           <button className="vehicle-reset-btn" onClick={handleReset} title="Reset vehicle calibration">
             <RotateCcw size={14} />
+          </button>
+          <button
+            className="vehicle-reset-btn"
+            onClick={() => {
+              setIsMuted((prev) => !prev);
+              unlockAudio();
+            }}
+            title={isMuted ? "Unmute buzzer" : "Mute buzzer"}
+          >
+            {isMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
           </button>
         </div>
       </div>

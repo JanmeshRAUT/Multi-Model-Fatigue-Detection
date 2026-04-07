@@ -15,19 +15,28 @@ const THRESHOLDS = {
 export default function FatigueIndicator() {
   const data = useFatigueData();
   const prevLevelRef = useRef("LOW");
-  const audioRef = useRef(null);
+  const prevMicrosleepRef = useRef(false);
+  const alertAudioRef = useRef(null);
+  const microsleepAudioRef = useRef(null);
 
   useEffect(() => {
-    audioRef.current = new Audio("/sounds/alert.mp3"); 
-    audioRef.current.loop = true; 
-    audioRef.current.volume = 1.0;
-    audioRef.current.preload = "auto";
+    alertAudioRef.current = new Audio("/sounds/alert.mp3");
+    alertAudioRef.current.loop = true;
+    alertAudioRef.current.volume = 1.0;
+    alertAudioRef.current.preload = "auto";
+
+    microsleepAudioRef.current = new Audio("/sounds/alert.mp3");
+    microsleepAudioRef.current.loop = true;
+    microsleepAudioRef.current.volume = 1.0;
+    microsleepAudioRef.current.playbackRate = 1.2;
+    microsleepAudioRef.current.preload = "auto";
 
     return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.currentTime = 0;
-      }
+      [alertAudioRef.current, microsleepAudioRef.current].forEach((audio) => {
+        if (!audio) return;
+        audio.pause();
+        audio.currentTime = 0;
+      });
     };
   }, []);
 
@@ -69,42 +78,60 @@ export default function FatigueIndicator() {
   };
 
   const level = evaluateFatigue();
+  const isMicrosleep = String(data.ml_flag || "").toUpperCase() === "MICROSLEEP";
 
   const handleUserInteraction = () => {
-    if (audioRef.current) {
-      audioRef.current.play().then(() => {
-        audioRef.current.pause();
-        audioRef.current.currentTime = 0;
-        console.log("Audio Context Unlocked");
-      }).catch(err => console.log("Audio unlock failed (harmless if already unlocked):", err));
-    }
+    [alertAudioRef.current, microsleepAudioRef.current].forEach((audio) => {
+      if (!audio) return;
+      audio.play().then(() => {
+        audio.pause();
+        audio.currentTime = 0;
+      }).catch((err) => console.log("Audio unlock failed (harmless if already unlocked):", err));
+    });
   };
 
   const [isMuted, setIsMuted] = React.useState(false);
 
   useEffect(() => {
     const prevLevel = prevLevelRef.current;
+    const prevMicrosleep = prevMicrosleepRef.current;
     
-    // Safety check: Audio ref might be null if component unmounts
-    const audio = audioRef.current;
-    if (!audio) return;
+    const alertAudio = alertAudioRef.current;
+    const microsleepAudio = microsleepAudioRef.current;
+    if (!alertAudio || !microsleepAudio) return;
 
-    if (level === "HIGH" && prevLevel !== "HIGH") {
-      if (!isMuted) {
-          console.log("🚨 TRIGGERING ALARM SOUND!");
-          audio.currentTime = 0;
-          audio.play().catch((err) => console.error("Audio play BLOCKED:", err));
+    if (!isMuted && isMicrosleep) {
+      if (!prevMicrosleep || microsleepAudio.paused) {
+        microsleepAudio.currentTime = 0;
+        microsleepAudio.play().catch((err) => console.error("Microsleep buzzer blocked:", err));
+      }
+      if (!alertAudio.paused) {
+        alertAudio.pause();
+        alertAudio.currentTime = 0;
+      }
+    } else if (!isMuted && level === "HIGH") {
+      if (alertAudio.paused || prevLevel !== "HIGH") {
+        alertAudio.currentTime = 0;
+        alertAudio.play().catch((err) => console.error("Alarm buzzer blocked:", err));
+      }
+      if (!microsleepAudio.paused) {
+        microsleepAudio.pause();
+        microsleepAudio.currentTime = 0;
+      }
+    } else {
+      if (!alertAudio.paused) {
+        alertAudio.pause();
+        alertAudio.currentTime = 0;
+      }
+      if (!microsleepAudio.paused) {
+        microsleepAudio.pause();
+        microsleepAudio.currentTime = 0;
       }
     }
 
-    // Force Stop if not HIGH or Muted
-    if ((level !== "HIGH" || isMuted) && !audio.paused) {
-         audio.pause();
-         audio.currentTime = 0;
-    }
-
     prevLevelRef.current = level;
-  }, [level, isMuted]);
+    prevMicrosleepRef.current = isMicrosleep;
+  }, [level, isMuted, isMicrosleep]);
 
   const getConfig = (lvl) => {
     switch (lvl) {

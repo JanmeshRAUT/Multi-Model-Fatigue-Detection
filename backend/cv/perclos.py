@@ -16,8 +16,9 @@ MAR_THRESH = 0.6
 
 MAR_FRAME_COUNT = 3
 STABILITY_THRESH = 0.05 # Max allowed normalized movement per frame (5% of screen)
-PERCLOS_WINDOW = 60
-MIN_CLOSED_FRAMES_FOR_PERCLOS = 3
+PERCLOS_WINDOW = 30
+MIN_CLOSED_FRAMES_FOR_PERCLOS = 2
+NO_FACE_GRACE_SECONDS = 1.2
 
 # --- State ---
 perclos_data = {
@@ -36,6 +37,8 @@ closed_frames_count = 0
 mar_history = deque(maxlen=20)
 prev_nose_pos = None # For motion/shake detection
 yawn_start_time = None # For time-based yawn duration check
+eyes_closed_start_time = None
+last_face_seen_time = 0.0
 
 # --- MediaPipe Initialization ---
 mp_face_mesh = mp.solutions.face_mesh
@@ -79,14 +82,16 @@ def process_face_mesh(frame):
     Processes a frame using MediaPipe FaceMesh to update PERCLOS, Yawn, and Head Pose.
     Updates global state: perclos_data, cv_head_angles.
     """
-    global perclos_data, eye_status_history, yawn_frames_count, mar_history, closed_frames_count, prev_nose_pos, yawn_start_time
+    global perclos_data, eye_status_history, yawn_frames_count, mar_history, closed_frames_count, prev_nose_pos, yawn_start_time, eyes_closed_start_time, last_face_seen_time
     now = int(time.time())
+    now_f = time.time()
 
     h, w, _ = frame.shape
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     results = face_mesh.process(rgb)
 
     if results.multi_face_landmarks:
+        last_face_seen_time = now_f
         lm = results.multi_face_landmarks[0]
         
         # --- 1. MOTION STABILITY CHECK ---
@@ -150,8 +155,15 @@ def process_face_mesh(frame):
         
         if eyes_closed:
             closed_frames_count += 1
+            if eyes_closed_start_time is None:
+                eyes_closed_start_time = now_f
         else:
             closed_frames_count = 0
+            eyes_closed_start_time = None
+
+        closed_duration_sec = 0.0
+        if eyes_closed_start_time is not None:
+            closed_duration_sec = max(0.0, now_f - eyes_closed_start_time)
 
         # Debounce short blinks so they do not inflate PERCLOS.
         perclos_closed = 1 if closed_frames_count >= MIN_CLOSED_FRAMES_FOR_PERCLOS else 0
@@ -201,24 +213,38 @@ def process_face_mesh(frame):
             "adaptive_mar_thresh": round(adaptive_thresh_val, 3),
             "timestamp": now,
             "closed_frames": closed_frames_count,
+            "closed_duration_sec": round(closed_duration_sec, 2),
             "is_calibrating": False
         })
     else:
         # No face detected
-        prev_nose_pos = None # Reset motion tracking
-        eye_status_history.clear()
-        yawn_frames_count = 0
-        closed_frames_count = 0
-        mar_history.clear()
-        perclos_data.update({
-            "status": "No Face",
-            "perclos": 0.0,
-            "ear": 0.0,
-            "yawn_status": "No Face",
-            "mar": 0.0,
-            "adaptive_mar_thresh": MAR_THRESH,
-            "timestamp": now
-        })
+        no_face_elapsed = now_f - last_face_seen_time
+        if no_face_elapsed <= NO_FACE_GRACE_SECONDS:
+            # Keep recent eye-closure signal for brief tracker dropouts.
+            perclos_data.update({
+                "status": perclos_data.get("status", "No Face"),
+                "timestamp": now,
+                "is_calibrating": False,
+            })
+        else:
+            prev_nose_pos = None # Reset motion tracking
+            eye_status_history.clear()
+            yawn_frames_count = 0
+            closed_frames_count = 0
+            eyes_closed_start_time = None
+            mar_history.clear()
+            perclos_data.update({
+                "status": "No Face",
+                "perclos": 0.0,
+                "ear": 0.0,
+                "yawn_status": "No Face",
+                "mar": 0.0,
+                "adaptive_mar_thresh": MAR_THRESH,
+                "timestamp": now,
+                "closed_frames": 0,
+                "closed_duration_sec": 0.0,
+                "is_calibrating": False,
+            })
 
     return perclos_data
 
