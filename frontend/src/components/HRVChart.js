@@ -9,6 +9,7 @@ import {
   ResponsiveContainer
 } from "recharts";
 import { useTheme } from "../context/ThemeContext";
+import { API_BASE } from "../api";
 import "./Css/HRVChart.css";
 
 export default function HRVChart() {
@@ -19,7 +20,7 @@ export default function HRVChart() {
   useEffect(() => {
     const fetchHR = async () => {
       try {
-        const res = await fetch("http://127.0.0.1:5000/combined_data");
+        const res = await fetch(`${API_BASE}/api/combined_data`);
         const data = await res.json();
         
         const currentHr = data.sensor?.hr || 0;

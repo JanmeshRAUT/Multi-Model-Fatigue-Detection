@@ -431,6 +431,11 @@ async def get_combined_data():
     return await get_combined_data_internal()
 
 
+@app.get("/combined_data")
+async def get_combined_data_legacy():
+    return await get_combined_data_internal()
+
+
 @app.get("/api/vehicle/combined_data")
 async def get_vehicle_combined_data():
     return await get_vehicle_combined_data_internal()
