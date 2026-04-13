@@ -11,6 +11,10 @@ const api = axios.create({
     }
 });
 
+// --- HUGGING FACE INFERENCE API CONFIG ---
+const HF_MODEL_URL = "https://api-inference.huggingface.co/models/JerryJR1705/fatiguemodel";
+const HF_TOKEN = process.env.REACT_APP_HF_TOKEN; 
+
 // --- API Service Methods ---
 
 export const resetCalibration = async () => {
@@ -52,6 +56,38 @@ export const resetVehicleCalibration = async () => {
     } catch (error) {
         console.error("Error resetting vehicle calibration:", error);
         return false;
+    }
+};
+
+/**
+ * Direct Prediction via Hugging Face Inference API
+ * @param {Object} features - The 10 features (EAR, MAR, etc.)
+ * @param {string} mode - "standard" or "vehicle"
+ */
+export const getFatiguePrediction = async (features, mode = "standard") => {
+    if (!HF_TOKEN) {
+        console.error("HF_TOKEN is missing in environment variables!");
+        return null;
+    }
+
+    try {
+        const response = await axios.post(
+            HF_MODEL_URL,
+            { 
+                inputs: features,
+                mode: mode 
+            },
+            {
+                headers: { 
+                    "Authorization": `Bearer ${HF_TOKEN}`,
+                    "Content-Type": "application/json"
+                }
+            }
+        );
+        return response.data;
+    } catch (error) {
+        console.error("Hugging Face Prediction Error:", error);
+        return null;
     }
 };
 
