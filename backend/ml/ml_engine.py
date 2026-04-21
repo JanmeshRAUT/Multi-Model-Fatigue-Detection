@@ -3,6 +3,7 @@ import json
 import numpy as np
 from collections import deque
 import time
+import requests
 
 try:
     import onnxruntime as ort
@@ -15,7 +16,7 @@ except Exception:
     joblib = None
 
 class MLEngine:
-    def __init__(self, model_path="fatigue_model.pkl", scaler_path=None, label_encoder_path=None, fallback_model_path=None):
+    def __init__(self, model_path="fatigue_model.pkl", scaler_path=None, label_encoder_path=None, fallback_model_path=None, hf_api_token=None, use_hf_api=True):
         self.model = None
         self.model_path = model_path
         self.scaler_path = scaler_path
@@ -29,6 +30,11 @@ class MLEngine:
         self.onnx_input_name = None
         self.onnx_scaler = None
         self.labels = {0: "Alert", 1: "Drowsy", 2: "Fatigued"}
+        
+        # HF Inference API Configuration
+        self.hf_api_token = hf_api_token
+        self.use_hf_api = use_hf_api and bool(hf_api_token)
+        self.inference_source = "Unknown"
         
         # INDUSTRIAL UPGRADE: Feature Window
         self.window_size = 20  # WIDE window for "Movie-like" smoothing
@@ -233,6 +239,42 @@ class MLEngine:
         """Convert numpy probability arrays/scalars to plain Python floats for JSON serialization."""
         return [round(float(p), 2) for p in probs]
 
+    def call_hf_inference_api(self, feature_vector, feature_names=None):
+        """
+        Call Hugging Face Inference API for predictions.
+        
+        Returns:
+            numpy array of probabilities or None if API fails
+        """
+        if not self.use_hf_api or not self.hf_api_token:
+            return None
+        
+        try:
+            API_URL = "https://api-inference.huggingface.co/models/scikit-learn/sklearn-api"
+            headers = {"Authorization": f"Bearer {self.hf_api_token}"}
+            payload = {"inputs": [feature_vector.tolist() if hasattr(feature_vector, 'tolist') else feature_vector]}
+            
+            print("[ML] 🌐 Calling HF Inference API...")
+            response = requests.post(API_URL, headers=headers, json=payload, timeout=10)
+            
+            if response.status_code == 200:
+                result = response.json()
+                if isinstance(result, list) and len(result) > 0:
+                    probs = np.array(result[0])
+                    if len(probs) == 3:
+                        self.inference_source = "HF Inference API"
+                        print("[ML] ✅ Prediction from HF Inference API")
+                        return probs
+            else:
+                print(f"[ML] ⚠️ API error {response.status_code}, falling back to local")
+                
+        except requests.Timeout:
+            print("[ML] ⚠️ API timeout, falling back to local")
+        except Exception as e:
+            print(f"[ML] ⚠️ API call failed: {e}, falling back to local")
+        
+        return None
+
     def reset_calibration(self):
         """Resets the adaptive baseline for a new user/session."""
         self.base_ear = 0.32
@@ -407,32 +449,45 @@ class MLEngine:
             ]
             
             # --- 3. PROBABILISTIC INFERENCE ---
-            # Get raw probabilities [Alert%, Drowsy%, Fatigued%]
-            if self.use_onnx and self.onnx_session is not None and self.onnx_input_name:
-                xgb_features = self._build_xgb_features({
-                    **vision_data,
-                    "head_angle_z": vision_data.get("head_angle_z", 0.0),
-                }, {
-                    **sensor_data,
-                    "hr": curr_hr,
-                    "temperature": curr_temp,
-                })
-                x_scaled = self._apply_onnx_scaling(xgb_features)
-                outputs = self.onnx_session.run(None, {self.onnx_input_name: x_scaled})
-                raw_probs = self._extract_onnx_probs(outputs)
-            elif self.use_xgb_pipeline:
-                xgb_features = self._build_xgb_features({
-                    **vision_data,
-                    "head_angle_z": vision_data.get("head_angle_z", 0.0),
-                }, {
-                    **sensor_data,
-                    "hr": curr_hr,
-                    "temperature": curr_temp,
-                })
-                x_scaled = self.scaler.transform(xgb_features)
-                raw_probs = self.model.predict_proba(x_scaled)[0]
-            else:
-                raw_probs = self.model.predict_proba(np.array([feature_vector], dtype=np.float32))[0]
+            # Try HF Inference API first, fall back to local model
+            raw_probs = None
+            
+            # Attempt HF Inference API call
+            if self.use_hf_api:
+                api_probs = self.call_hf_inference_api(np.array([feature_vector], dtype=np.float32))
+                if api_probs is not None:
+                    raw_probs = api_probs
+            
+            # Fall back to local model if API unavailable
+            if raw_probs is None:
+                self.inference_source = "Local model"
+                if self.use_onnx and self.onnx_session is not None and self.onnx_input_name:
+                    xgb_features = self._build_xgb_features({
+                        **vision_data,
+                        "head_angle_z": vision_data.get("head_angle_z", 0.0),
+                    }, {
+                        **sensor_data,
+                        "hr": curr_hr,
+                        "temperature": curr_temp,
+                    })
+                    x_scaled = self._apply_onnx_scaling(xgb_features)
+                    outputs = self.onnx_session.run(None, {self.onnx_input_name: x_scaled})
+                    raw_probs = self._extract_onnx_probs(outputs)
+                elif self.use_xgb_pipeline:
+                    xgb_features = self._build_xgb_features({
+                        **vision_data,
+                        "head_angle_z": vision_data.get("head_angle_z", 0.0),
+                    }, {
+                        **sensor_data,
+                        "hr": curr_hr,
+                        "temperature": curr_temp,
+                    })
+                    x_scaled = self.scaler.transform(xgb_features)
+                    raw_probs = self.model.predict_proba(x_scaled)[0]
+                else:
+                    raw_probs = self.model.predict_proba(np.array([feature_vector], dtype=np.float32))[0]
+                
+                print(f"[ML] ✅ Prediction from local model")
 
             # --- 3.5 LOGICAL SENSOR OVERRIDES (Soft Integration) ---
             # Instead of a hard return, we bias the probabilities so the 

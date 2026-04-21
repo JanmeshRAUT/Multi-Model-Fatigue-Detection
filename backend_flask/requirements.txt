@@ -8,3 +8,7 @@ mediapipe
 scikit-learn
 pandas
 protobuf
+joblib
+xgboost
+huggingface-hub
+requests

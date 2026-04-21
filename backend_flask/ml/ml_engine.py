@@ -4,12 +4,295 @@ import numpy as np
 import pandas as pd
 from collections import deque
 import time
+import requests
+import json
 
 class MLEngine:
-    def __init__(self, model_path="fatigue_model.pkl"):
+    def __init__(self, model_path="fatigue_model.pkl", hf_repo=None, hf_token=None, 
+                 hf_api_token=None, use_hf_api=True):
         self.model = None
         self.model_path = model_path
+        self.hf_repo = hf_repo
+        self.hf_token = hf_token
+        self.hf_api_token = hf_api_token or hf_token
+        self.use_hf_api = use_hf_api
+        self.model_source = None
+        self.inference_source = None  # Track where prediction comes from
         self.labels = {0: "Alert", 1: "Drowsy", 2: "Fatigued"}
+        
+        # Feature windowing
+        self.window_size = 20
+        self.history = deque(maxlen=self.window_size)
+        
+        # EMA smoothing
+        self.ema_probs = None
+        self.alpha = 0.15
+        
+        # Microsleep detection
+        self.microsleep_max_frames = 10
+        
+        # State machine
+        self.current_state = 0
+        self.state_persistence = 0
+        self.required_persistence = 5
+        
+        self.debug_counter = 0
+        
+        # Adaptive calibration
+        self.base_ear = 0.32
+        self.calibration_frames = 0
+        self.max_calibration = 100
+        
+        # Last sensor values
+        self.last_sensor_values = {"hr": 0, "temp": 0}
+        self.sensor_stale_count = 0
+        
+        self.load_model()
+    
+    def load_model(self):
+        """Load model from HF Hub with local fallback."""
+        if self.hf_repo:
+            try:
+                from huggingface_hub import hf_hub_download
+                print(f"[ML] 🌐 Loading from HF Hub: {self.hf_repo}")
+                
+                model_file = hf_hub_download(
+                    repo_id=self.hf_repo,
+                    filename="fatigue_model.pkl",
+                    token=self.hf_token
+                )
+                self.model = joblib.load(model_file)
+                self.model_source = f"HuggingFace:{self.hf_repo}"
+                print(f"[ML] ✅ Model loaded from HF Hub")
+                return
+            except ImportError:
+                print(f"[ML] ⚠️ huggingface_hub not installed")
+            except Exception as e:
+                print(f"[ML] ⚠️ HF load failed: {e}")
+        
+        # Fallback to local
+        if not os.path.exists(self.model_path):
+            print(f"[ML] ⚠️ Model not found: {self.model_path}")
+            return
+
+        try:
+            self.model = joblib.load(self.model_path)
+            self.model_source = f"Local:{self.model_path}"
+            print(f"[ML] ✅ Model loaded from local")
+        except Exception as e:
+            print(f"[ML] ❌ Failed to load: {e}")
+    
+    def call_hf_inference_api(self, feature_vector, feature_names):
+        """
+        Call HF Inference API for prediction.
+        
+        Args:
+            feature_vector: list of feature values
+            feature_names: list of feature names
+        
+        Returns:
+            numpy array of probabilities or None if failed
+        """
+        if not self.use_hf_api or not self.hf_api_token:
+            return None
+        
+        try:
+            # HF Inference API endpoint
+            API_URL = "https://api-inference.huggingface.co/models/scikit-learn/sklearn-api"
+            headers = {"Authorization": f"Bearer {self.hf_api_token}"}
+            
+            # Format input for API
+            payload = {
+                "inputs": [feature_vector],
+                "parameters": {}
+            }
+            
+            # Make API call
+            response = requests.post(
+                API_URL,
+                headers=headers,
+                json=payload,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                # API returns probabilities
+                if isinstance(result, list) and len(result) > 0:
+                    probs = np.array(result[0])
+                    if len(probs) == 3:  # Alert, Drowsy, Fatigued
+                        self.inference_source = "HF Inference API"
+                        print(f"[ML] ✅ Prediction from HF Inference API")
+                        return probs
+            else:
+                print(f"[ML] ⚠️ API error: {response.status_code}")
+        except requests.Timeout:
+            print(f"[ML] ⚠️ API timeout, falling back to local")
+        except Exception as e:
+            print(f"[ML] ⚠️ API call failed: {e}, falling back to local")
+        
+        return None
+    
+    def reset_calibration(self):
+        """Reset adaptive baseline."""
+        self.base_ear = 0.32
+        self.calibration_frames = 0
+        self.history.clear()
+        self.ema_probs = None
+        self.current_state = 0
+        print("[ML] 🔄 Calibration Reset")
+    
+    def calculate_temporal_features(self, current_data):
+        """Compute rolling statistics."""
+        self.history.append(current_data)
+        data_matrix = np.array(self.history)
+        
+        if len(self.history) < 2:
+            return {
+                'ear_mean': current_data[0], 'ear_std': 0,
+                'mar_mean': current_data[1], 'mar_std': 0,
+                'pitch_mean': current_data[2], 'pitch_std': 0,
+                'hr_mean': current_data[4], 'hr_std': 0,
+                'temp_mean': current_data[5]
+            }
+        
+        means = np.mean(data_matrix, axis=0)
+        stds = np.std(data_matrix, axis=0)
+        
+        return {
+            'ear_mean': means[0], 'ear_std': stds[0],
+            'mar_mean': means[1], 'mar_std': stds[1],
+            'pitch_mean': means[2], 'pitch_std': stds[2],
+            'hr_mean': means[4], 'hr_std': stds[4],
+            'temp_mean': means[5]
+        }
+    
+    def predict(self, sensor_data, vision_data):
+        """Predict fatigue state - API first, local fallback."""
+        if self.model is None and not self.use_hf_api:
+            return {"status": "Unknown", "confidence": 0, "raw_probs": [0, 0, 0]}
+
+        # Validate vision
+        status = vision_data.get("status", "Unknown")
+        if status in ["No Face", "Unstable"]:
+            if self.ema_probs is not None:
+                self.ema_probs = self.ema_probs * 0.5 + np.array([1, 0, 0]) * 0.5
+            else:
+                self.ema_probs = np.array([1, 0, 0])
+            
+            return {
+                "status": "No Face",
+                "confidence": 0.0,
+                "raw_probs": [1, 0, 0],
+                "inference_source": "N/A"
+            }
+        
+        try:
+            # Sensor imputation
+            DEFAULT_HR = 75.0
+            DEFAULT_TEMP = 37.0
+            
+            curr_hr = sensor_data.get('hr', 0)
+            curr_temp = sensor_data.get('temperature', 0)
+            
+            if curr_hr <= 0:
+                curr_hr = DEFAULT_HR
+            if curr_temp <= 0:
+                curr_temp = DEFAULT_TEMP
+            
+            # Vision features
+            current_ear = vision_data.get('ear', 0.3)
+            current_mar = vision_data.get('mar', 0.0)
+            head_pitch = abs(vision_data.get('head_angle_x', 0))
+            head_yaw = abs(vision_data.get('head_angle_y', 0))
+            
+            # Build feature vector
+            raw_sample = [
+                current_ear,
+                current_mar,
+                head_pitch,
+                head_yaw,
+                curr_hr,
+                curr_temp
+            ]
+            
+            stats = self.calculate_temporal_features(raw_sample)
+            
+            feature_vector = [
+                vision_data.get('perclos', 0),
+                stats['ear_mean'], stats['ear_std'],
+                stats['mar_mean'], stats['mar_std'],
+                stats['pitch_mean'], stats['pitch_std'],
+                stats['hr_mean'], stats['hr_std'],
+                stats['temp_mean']
+            ]
+            
+            feature_names = [
+                'perclos',
+                'ear_mean', 'ear_std',
+                'mar_mean', 'mar_std',
+                'head_pitch_mean', 'head_pitch_std',
+                'hr_mean', 'hr_std',
+                'temperature_mean'
+            ]
+            
+            # Try HF Inference API first
+            raw_probs = self.call_hf_inference_api(feature_vector, feature_names)
+            
+            # Fallback to local model
+            if raw_probs is None:
+                if self.model is None:
+                    return {"status": "Error", "confidence": 0, "raw_probs": [0, 0, 0]}
+                
+                X_input = pd.DataFrame([feature_vector], columns=feature_names)
+                raw_probs = self.model.predict_proba(X_input)[0]
+                self.inference_source = f"Local:{self.model_source}"
+                print(f"[ML] ✅ Prediction from local model")
+            
+            # EMA smoothing
+            if self.ema_probs is None:
+                self.ema_probs = raw_probs
+            else:
+                self.ema_probs = (self.alpha * raw_probs) + ((1 - self.alpha) * self.ema_probs)
+            
+            self.ema_probs /= np.sum(self.ema_probs)
+            
+            # State machine
+            proposed_state = np.argmax(self.ema_probs)
+            confidence = self.ema_probs[proposed_state]
+            
+            if self.current_state == 0 and proposed_state == 2:
+                if confidence < 0.9:
+                    proposed_state = 1
+            
+            if self.current_state == 2 and proposed_state == 0:
+                proposed_state = 1
+            
+            if proposed_state != self.current_state:
+                self.state_persistence += 1
+                if self.state_persistence >= self.required_persistence:
+                    self.current_state = proposed_state
+                    self.state_persistence = 0
+            else:
+                self.state_persistence = 0
+            
+            final_label = self.labels.get(self.current_state, "Unknown")
+            
+            return {
+                "status": final_label,
+                "confidence": round(float(confidence), 2),
+                "raw_probs": [round(p, 2) for p in self.ema_probs],
+                "inference_source": self.inference_source or "Local"
+            }
+        
+        except Exception as e:
+            print(f"[ML ERROR] {e}")
+            return {
+                "status": "Error",
+                "confidence": 0,
+                "raw_probs": [0, 0, 0],
+                "inference_source": "Error"
+            }
         
         # INDUSTRIAL UPGRADE: Feature Window
         self.window_size = 20  # WIDE window for "Movie-like" smoothing
@@ -43,16 +326,43 @@ class MLEngine:
     
 
     def load_model(self):
-        """Loads the trained ML model from disk."""
+        """
+        Loads the trained ML model with HF Hub as primary source and local fallback.
+        Priority: HF Hub (if repo configured) -> Local Path
+        """
+        # Try Hugging Face Hub first
+        if self.hf_repo:
+            try:
+                from huggingface_hub import hf_hub_download
+                print(f"[ML] 🌐 Attempting to load from Hugging Face Hub: {self.hf_repo}")
+                
+                # Download model from HF Hub
+                model_file = hf_hub_download(
+                    repo_id=self.hf_repo,
+                    filename="fatigue_model.pkl",
+                    token=self.hf_token
+                )
+                self.model = joblib.load(model_file)
+                self.model_source = f"HuggingFace:{self.hf_repo}"
+                print(f"[ML] ✅ Model loaded successfully from Hugging Face Hub: {self.hf_repo}")
+                return
+            except ImportError:
+                print(f"[ML] ⚠️ huggingface_hub not installed. Falling back to local model.")
+            except Exception as e:
+                print(f"[ML] ⚠️ Failed to load from HF Hub ({self.hf_repo}): {e}")
+                print(f"[ML] 🔄 Falling back to local model at {self.model_path}")
+        
+        # Fallback to local model
         if not os.path.exists(self.model_path):
-            print(f"[ML] ⚠️ Model file not found at {self.model_path}.")
+            print(f"[ML] ❌ Local model file not found at {self.model_path}.")
             return
 
         try:
             self.model = joblib.load(self.model_path)
-            print(f"[ML] ✅ Model loaded successfully from {self.model_path}")
+            self.model_source = f"Local:{self.model_path}"
+            print(f"[ML] ✅ Model loaded successfully from local path: {self.model_path}")
         except Exception as e:
-            print(f"[ML] ❌ Failed to load model: {e}")
+            print(f"[ML] ❌ Failed to load local model: {e}")
 
     def reset_calibration(self):
         """Resets the adaptive baseline for a new user/session."""

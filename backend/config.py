@@ -30,6 +30,15 @@ class Config:
     VEHICLE_LABEL_ENCODER_PATH = os.path.join(os.path.dirname(__file__), "ml", "models", "xgb_label_encoder.joblib")
     ML_INTERVAL = 0.5 # Seconds between ML predictions to prevent CPU overload
     
+    # --- Hugging Face Model Configuration ---
+    HF_FATIGUE_MODEL_REPO = os.environ.get("HF_FATIGUE_MODEL_REPO", "")
+    HF_VEHICLE_MODEL_REPO = os.environ.get("HF_VEHICLE_MODEL_REPO", "")
+    HF_TOKEN = os.environ.get("HF_TOKEN", "")
+    
+    # --- Hugging Face Inference API Configuration ---
+    HF_API_TOKEN = os.environ.get("HF_API_TOKEN", "")
+    USE_HF_INFERENCE_API = _as_bool(os.environ.get("USE_HF_INFERENCE_API"), True)
+    
     # --- Logging / Debug ---
     DEBUG = True
 

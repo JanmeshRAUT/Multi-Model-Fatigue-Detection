@@ -4,18 +4,27 @@ import numpy as np
 import pandas as pd
 from collections import deque
 import time
+import requests
+import json
 
 class VehicleMLEngine:
     """
     Vehicle Fatigue Model - Vision-Only Sensors
-    Uses only: Head Position, Camera, Perclos, Yawning
-    NO psychological sensors (HR, Temperature, IMU)
+    Uses HF Inference API (primary) + Local model (fallback)
     """
-    def __init__(self, model_path="vehicle_fatigue_model.pkl", scaler_path=None, label_encoder_path=None):
+    def __init__(self, model_path="vehicle_fatigue_model.pkl", scaler_path=None, 
+                 label_encoder_path=None, hf_repo=None, hf_token=None, 
+                 hf_api_token=None, use_hf_api=True):
         self.model = None
         self.model_path = model_path
         self.scaler_path = scaler_path
         self.label_encoder_path = label_encoder_path
+        self.hf_repo = hf_repo
+        self.hf_token = hf_token
+        self.hf_api_token = hf_api_token or hf_token
+        self.use_hf_api = use_hf_api
+        self.model_source = None
+        self.inference_source = None  # Track prediction source
         self.scaler = None
         self.label_encoder = None
         self.use_xgb_pipeline = False
@@ -51,7 +60,56 @@ class VehicleMLEngine:
     
 
     def load_model(self):
-        """Loads the trained ML model from disk."""
+        """
+        Loads the trained ML model with HF Hub as primary source and local fallback.
+        Priority: HF Hub (if repo configured) -> Local Path
+        """
+        # Try Hugging Face Hub first
+        if self.hf_repo:
+            try:
+                from huggingface_hub import hf_hub_download
+                print(f"[VehicleML] 🌐 Attempting to load from Hugging Face Hub: {self.hf_repo}")
+                
+                # Download model from HF Hub
+                model_file = hf_hub_download(
+                    repo_id=self.hf_repo,
+                    filename="xgboost_independent.joblib",
+                    token=self.hf_token
+                )
+                self.model = joblib.load(model_file)
+                
+                # Try to load scaler and label encoder from HF Hub
+                try:
+                    scaler_file = hf_hub_download(
+                        repo_id=self.hf_repo,
+                        filename="xgb_scaler.joblib",
+                        token=self.hf_token
+                    )
+                    self.scaler = joblib.load(scaler_file)
+                except Exception as e:
+                    print(f"[VehicleML] ⚠️ Scaler not found in HF Hub: {e}")
+                
+                try:
+                    encoder_file = hf_hub_download(
+                        repo_id=self.hf_repo,
+                        filename="xgb_label_encoder.joblib",
+                        token=self.hf_token
+                    )
+                    self.label_encoder = joblib.load(encoder_file)
+                except Exception as e:
+                    print(f"[VehicleML] ⚠️ Label encoder not found in HF Hub: {e}")
+                
+                self.model_source = f"HuggingFace:{self.hf_repo}"
+                self.use_xgb_pipeline = self.scaler is not None
+                print(f"[VehicleML] ✅ Model loaded successfully from Hugging Face Hub: {self.hf_repo}")
+                return
+            except ImportError:
+                print(f"[VehicleML] ⚠️ huggingface_hub not installed. Falling back to local model.")
+            except Exception as e:
+                print(f"[VehicleML] ⚠️ Failed to load from HF Hub ({self.hf_repo}): {e}")
+                print(f"[VehicleML] 🔄 Falling back to local model at {self.model_path}")
+        
+        # Fallback to local model
         if not os.path.exists(self.model_path):
             print(f"[VehicleML] ⚠️ Model file not found at {self.model_path}.")
             return
@@ -64,12 +122,62 @@ class VehicleMLEngine:
                 self.label_encoder = joblib.load(self.label_encoder_path)
 
             self.use_xgb_pipeline = self.scaler is not None
+            self.model_source = f"Local:{self.model_path}"
             if self.use_xgb_pipeline:
-                print(f"[VehicleML] ✅ XGBoost pipeline loaded: {self.model_path}")
+                print(f"[VehicleML] ✅ XGBoost pipeline loaded from local: {self.model_path}")
             else:
-                print(f"[VehicleML] ✅ Legacy model loaded: {self.model_path}")
+                print(f"[VehicleML] ✅ Legacy model loaded from local: {self.model_path}")
         except Exception as e:
-            print(f"[VehicleML] ❌ Failed to load model: {e}")
+            print(f"[VehicleML] ❌ Failed to load local model: {e}")
+
+    def call_hf_inference_api(self, feature_df):
+        """
+        Call HF Inference API for XGBoost prediction.
+        
+        Args:
+            feature_df: pandas DataFrame with features
+        
+        Returns:
+            numpy array of probabilities or None if failed
+        """
+        if not self.use_hf_api or not self.hf_api_token:
+            return None
+        
+        try:
+            # HF Inference API for XGBoost models
+            API_URL = "https://api-inference.huggingface.co/models/xgboost/xgboost-api"
+            headers = {"Authorization": f"Bearer {self.hf_api_token}"}
+            
+            # Convert DataFrame to dict for API
+            payload = {
+                "inputs": feature_df.to_dict(orient='records'),
+                "parameters": {}
+            }
+            
+            # Make API call
+            response = requests.post(
+                API_URL,
+                headers=headers,
+                json=payload,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                if isinstance(result, list) and len(result) > 0:
+                    probs = np.array(result[0])
+                    if len(probs) >= 3:
+                        self.inference_source = "HF Inference API"
+                        print(f"[VehicleML] ✅ Prediction from HF Inference API")
+                        return probs[:3]  # Take first 3 classes
+            else:
+                print(f"[VehicleML] ⚠️ API error: {response.status_code}")
+        except requests.Timeout:
+            print(f"[VehicleML] ⚠️ API timeout, falling back to local")
+        except Exception as e:
+            print(f"[VehicleML] ⚠️ API call failed: {e}, falling back to local")
+        
+        return None
 
     def reset_calibration(self):
         """Resets the adaptive baseline for a new user/session."""

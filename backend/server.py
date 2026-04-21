@@ -71,6 +71,8 @@ async def lifespan(app: FastAPI):
             scaler_path=getattr(config, "MODEL_SCALER_PATH", None),
             label_encoder_path=getattr(config, "MODEL_LABEL_ENCODER_PATH", None),
             fallback_model_path=getattr(config, "LEGACY_MODEL_PATH", None),
+            hf_api_token=config.HF_API_TOKEN,
+            use_hf_api=config.USE_HF_INFERENCE_API
         )
         logger.info("✅ ML Engine Initialized")
     except Exception as e:
@@ -81,6 +83,8 @@ async def lifespan(app: FastAPI):
             model_path=config.VEHICLE_MODEL_PATH,
             scaler_path=getattr(config, "VEHICLE_SCALER_PATH", None),
             label_encoder_path=getattr(config, "VEHICLE_LABEL_ENCODER_PATH", None),
+            hf_api_token=config.HF_API_TOKEN,
+            use_hf_api=config.USE_HF_INFERENCE_API
         )
         logger.info("✅ Vehicle ML Engine Initialized")
     except Exception as e:

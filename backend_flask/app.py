@@ -49,8 +49,14 @@ def initialize_systems():
     start_serial_thread()
     # Initialize ML Engine (Standard Fatigue Model)
     try:
-        ml_engine = MLEngine(model_path=config.MODEL_PATH)
-        logger.info("✅ ML Engine Initialized")
+        ml_engine = MLEngine(
+            model_path=config.MODEL_PATH,
+            hf_repo=config.HF_FATIGUE_MODEL_REPO if config.HF_FATIGUE_MODEL_REPO else None,
+            hf_token=config.HF_TOKEN,
+            hf_api_token=config.HF_API_TOKEN,
+            use_hf_api=config.USE_HF_INFERENCE_API
+        )
+        logger.info(f"✅ ML Engine Initialized (Model source: {ml_engine.model_source})")
     except Exception as e:
         logger.error(f"❌ Failed to initialize ML Engine: {e}")
     
@@ -60,8 +66,12 @@ def initialize_systems():
             model_path=config.VEHICLE_MODEL_PATH,
             scaler_path=getattr(config, "VEHICLE_SCALER_PATH", None),
             label_encoder_path=getattr(config, "VEHICLE_LABEL_ENCODER_PATH", None),
+            hf_repo=config.HF_VEHICLE_MODEL_REPO if config.HF_VEHICLE_MODEL_REPO else None,
+            hf_token=config.HF_TOKEN,
+            hf_api_token=config.HF_API_TOKEN,
+            use_hf_api=config.USE_HF_INFERENCE_API
         )
-        logger.info("✅ Vehicle ML Engine Initialized")
+        logger.info(f"✅ Vehicle ML Engine Initialized (Model source: {vehicle_ml_engine.model_source})")
     except Exception as e:
         logger.error(f"❌ Failed to initialize Vehicle ML Engine: {e}")
 

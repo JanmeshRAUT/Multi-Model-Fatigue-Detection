@@ -1,0 +1,19 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Copy backend files
+COPY backend_flask/ /app/
+
+# Install dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Expose port
+EXPOSE 5000
+
+# Set environment
+ENV FLASK_APP=app.py
+ENV FLASK_ENV=production
+
+# Run Flask app
+CMD ["python", "app.py"]

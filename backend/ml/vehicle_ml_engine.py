@@ -2,6 +2,7 @@ import os
 import json
 import numpy as np
 from collections import deque
+import requests
 
 try:
     import onnxruntime as ort
@@ -17,7 +18,7 @@ except Exception:
 class VehicleMLEngine:
     """Vehicle fatigue inference engine with optional XGBoost pipeline."""
 
-    def __init__(self, model_path="vehicle_fatigue_model.pkl", scaler_path=None, label_encoder_path=None):
+    def __init__(self, model_path="vehicle_fatigue_model.pkl", scaler_path=None, label_encoder_path=None, hf_api_token=None, use_hf_api=True):
         self.model = None
         self.model_path = model_path
         self.scaler_path = scaler_path
@@ -30,6 +31,11 @@ class VehicleMLEngine:
         self.onnx_input_name = None
         self.onnx_scaler = None
         self.labels = {0: "Alert", 1: "Drowsy", 2: "Fatigued"}
+        
+        # HF Inference API Configuration
+        self.hf_api_token = hf_api_token
+        self.use_hf_api = use_hf_api and bool(hf_api_token)
+        self.inference_source = "Unknown"
 
         self.window_size = 20
         self.history = deque(maxlen=self.window_size)
@@ -191,6 +197,42 @@ class VehicleMLEngine:
         ]
         return np.array([values], dtype=np.float32)
 
+    def call_hf_inference_api(self, feature_array):
+        """
+        Call Hugging Face Inference API for predictions.
+        
+        Returns:
+            numpy array of probabilities or None if API fails
+        """
+        if not self.use_hf_api or not self.hf_api_token:
+            return None
+        
+        try:
+            API_URL = "https://api-inference.huggingface.co/models/scikit-learn/xgboost-classifier"
+            headers = {"Authorization": f"Bearer {self.hf_api_token}"}
+            payload = {"inputs": [feature_array.tolist() if hasattr(feature_array, 'tolist') else feature_array]}
+            
+            print("[ML VEHICLE] 🌐 Calling HF Inference API...")
+            response = requests.post(API_URL, headers=headers, json=payload, timeout=10)
+            
+            if response.status_code == 200:
+                result = response.json()
+                if isinstance(result, list) and len(result) > 0:
+                    probs = np.array(result[0])
+                    if len(probs) == 3:
+                        self.inference_source = "HF Inference API"
+                        print("[ML VEHICLE] ✅ Prediction from HF Inference API")
+                        return probs
+            else:
+                print(f"[ML VEHICLE] ⚠️ API error {response.status_code}, falling back to local")
+                
+        except requests.Timeout:
+            print("[ML VEHICLE] ⚠️ API timeout, falling back to local")
+        except Exception as e:
+            print(f"[ML VEHICLE] ⚠️ API call failed: {e}, falling back to local")
+        
+        return None
+
     def predict(self, vision_data, sensor_data=None):
         if self.model is None and not self.use_onnx:
             return {"status": "Unknown", "confidence": 0, "raw_probs": [0, 0, 0], "microsleep_detected": False}
@@ -237,17 +279,31 @@ class VehicleMLEngine:
         ])
 
         try:
-            if self.use_onnx and self.onnx_session is not None and self.onnx_input_name:
+            # Try HF Inference API first
+            probs = None
+            
+            if self.use_hf_api:
                 xgb_features = self._build_xgb_features(vision_data, sensor_data)
-                x_scaled = self._apply_onnx_scaling(xgb_features)
-                outputs = self.onnx_session.run(None, {self.onnx_input_name: x_scaled})
-                probs = self._extract_onnx_probs(outputs)
-            elif self.use_xgb_pipeline:
-                xgb_features = self._build_xgb_features(vision_data, sensor_data)
-                x_scaled = self.scaler.transform(xgb_features)
-                probs = self.model.predict_proba(x_scaled)[0]
-            else:
-                probs = self.model.predict_proba([legacy_x])[0]
+                api_probs = self.call_hf_inference_api(xgb_features[0])  # Pass first row
+                if api_probs is not None:
+                    probs = api_probs
+            
+            # Fall back to local model if API unavailable
+            if probs is None:
+                self.inference_source = "Local model"
+                if self.use_onnx and self.onnx_session is not None and self.onnx_input_name:
+                    xgb_features = self._build_xgb_features(vision_data, sensor_data)
+                    x_scaled = self._apply_onnx_scaling(xgb_features)
+                    outputs = self.onnx_session.run(None, {self.onnx_input_name: x_scaled})
+                    probs = self._extract_onnx_probs(outputs)
+                elif self.use_xgb_pipeline:
+                    xgb_features = self._build_xgb_features(vision_data, sensor_data)
+                    x_scaled = self.scaler.transform(xgb_features)
+                    probs = self.model.predict_proba(x_scaled)[0]
+                else:
+                    probs = self.model.predict_proba([legacy_x])[0]
+                
+                print(f"[ML VEHICLE] ✅ Prediction from local model")
         except Exception as e:
             print(f"[VehicleML] Inference error: {e}")
             return {"status": "Error", "confidence": 0, "raw_probs": [0, 0, 0], "microsleep_detected": False}
