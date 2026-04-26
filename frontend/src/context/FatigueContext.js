@@ -101,7 +101,7 @@ export const FatigueProvider = ({ children }) => {
              isMounted = false;
              if (interval) clearInterval(interval);
         };
-    }, []);
+    }, [userProfile.vehicleId]);
 
     // ---------------- EXPORT ----------------
     const value = {
