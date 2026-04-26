@@ -23,6 +23,8 @@ out/
 
 # Project Specific
 ml_model/
+fatiguemodel/
+fatiguepred/
 *.csv
 *.pkl
 *.h5
