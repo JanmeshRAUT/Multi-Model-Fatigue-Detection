@@ -281,12 +281,12 @@ function App() {
               />
             </VehicleProvider>
           ) : selectedModel === "owner" ? (
-            <VehicleProvider>
+            <FatigueProvider>
               <OwnerModelWithSwitcher
                 setShowProfile={setShowProfile}
                 onExit={handleExit}
               />
-            </VehicleProvider>
+            </FatigueProvider>
           ) : (
             <FatigueProvider>
               <StandardModelWithSwitcher

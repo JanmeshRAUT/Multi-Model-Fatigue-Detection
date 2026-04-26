@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Bell, Heart, Thermometer, Activity, Eye, Gauge, ShieldAlert, Truck, Car } from "lucide-react";
-import { useVehicleContext } from "../context/VehicleContext";
+import { useFatigueContext } from "../context/FatigueContext";
 import { useUserContext } from "../context/UserContext";
 import "./Css/OwnerDashboard.css";
 
@@ -25,12 +25,10 @@ function formatTimestamp(ts) {
 }
 
 export default function OwnerDashboard() {
-  const { vehicleData } = useVehicleContext() || {};
+  const { fullData } = useFatigueContext() || {};
   const { userProfile } = useUserContext();
   const [alertHistory, setAlertHistory] = useState([]);
-  const [selectedVehicle, setSelectedVehicle] = useState(() => localStorage.getItem("owner_selected_vehicle") || userProfile.vehicleId);
-
-  const fullData = vehicleData || {};
+  
   const prediction = fullData?.prediction || {};
   const sensor = fullData?.sensor || {};
   const perclos = fullData?.perclos || {};
@@ -46,16 +44,6 @@ export default function OwnerDashboard() {
       : "safe";
 
   const backendVehicleId = fullData?.vehicle_id || fullData?.truck_id || null;
-
-  useEffect(() => {
-    localStorage.setItem("owner_selected_vehicle", selectedVehicle);
-  }, [selectedVehicle]);
-
-  useEffect(() => {
-    if (userProfile.vehicleId) {
-      setSelectedVehicle(userProfile.vehicleId);
-    }
-  }, [userProfile.vehicleId]);
 
   useEffect(() => {
     const shouldLogAlert = driverStatus === "Drowsy" || driverStatus === "Fatigued";

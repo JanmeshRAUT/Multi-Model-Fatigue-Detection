@@ -101,6 +101,7 @@ export const FatigueProvider = ({ children }) => {
              isMounted = false;
              if (interval) clearInterval(interval);
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [userProfile.vehicleId]);
 
     // ---------------- EXPORT ----------------
