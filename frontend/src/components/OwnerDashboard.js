@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Bell, Heart, Thermometer, Activity, Eye, Gauge, ShieldAlert } from "lucide-react";
+import { Bell, Heart, Thermometer, Activity, Eye, Gauge, ShieldAlert, Truck, Car } from "lucide-react";
 import { useVehicleContext } from "../context/VehicleContext";
+import { useUserContext } from "../context/UserContext";
 import "./Css/OwnerDashboard.css";
 
 function MetricCard({ icon, label, value, subValue, tone = "neutral" }) {
@@ -25,8 +26,9 @@ function formatTimestamp(ts) {
 
 export default function OwnerDashboard() {
   const { vehicleData } = useVehicleContext() || {};
+  const { userProfile } = useUserContext();
   const [alertHistory, setAlertHistory] = useState([]);
-  const [selectedVehicle, setSelectedVehicle] = useState(() => localStorage.getItem("owner_selected_vehicle") || "TRUCK-01");
+  const [selectedVehicle, setSelectedVehicle] = useState(() => localStorage.getItem("owner_selected_vehicle") || userProfile.vehicleId);
 
   const fullData = vehicleData || {};
   const prediction = fullData?.prediction || {};
@@ -48,6 +50,12 @@ export default function OwnerDashboard() {
   useEffect(() => {
     localStorage.setItem("owner_selected_vehicle", selectedVehicle);
   }, [selectedVehicle]);
+
+  useEffect(() => {
+    if (userProfile.vehicleId) {
+      setSelectedVehicle(userProfile.vehicleId);
+    }
+  }, [userProfile.vehicleId]);
 
   useEffect(() => {
     const shouldLogAlert = driverStatus === "Drowsy" || driverStatus === "Fatigued";
@@ -86,18 +94,13 @@ export default function OwnerDashboard() {
             Vehicle-mode live stream for owner operations: fatigue status, vision signals, and sensor telemetry.
           </p>
           <div className="owner-vehicle-row">
-            <label htmlFor="ownerVehicle" className="owner-vehicle-label">Monitoring Vehicle</label>
-            <select
-              id="ownerVehicle"
-              className="owner-vehicle-select"
-              value={selectedVehicle}
-              onChange={(e) => setSelectedVehicle(e.target.value)}
-            >
-              <option value="TRUCK-01">TRUCK-01</option>
-              <option value="TRUCK-02">TRUCK-02</option>
-              <option value="TRUCK-03">TRUCK-03</option>
-            </select>
-            <span className="owner-vehicle-badge">Live Source: {backendVehicleId || "Vehicle Mode Feed"}</span>
+            <label className="owner-vehicle-label">Monitoring Unit</label>
+            <div className="owner-vehicle-badge" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+               {userProfile.vehicleType === 'Truck' ? <Truck size={14} /> : <Car size={14} />}
+               <span style={{ fontWeight: 700 }}>{userProfile.vehicleType}: {userProfile.vehicleId}</span>
+            </div>
+            <span className="owner-vehicle-badge">Owner: {userProfile.name}</span>
+            <span className="owner-vehicle-badge" style={{ borderColor: '#3b82f6', color: '#3b82f6' }}>Source: {backendVehicleId || "Cloud API"}</span>
           </div>
         </div>
         <div className={`owner-status-chip chip-${ownerRiskTone}`}>

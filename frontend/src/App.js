@@ -13,6 +13,7 @@ import { FatigueProvider } from "./context/FatigueContext";
 import { VehicleProvider, useVehicleContext } from "./context/VehicleContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import { ModeProvider } from "./context/ModeContext";
+import { UserProvider, useUserContext } from "./context/UserContext";
 
 // Components
 import BodyTemperatureChart from "./components/BodyTemperatureChart";
@@ -21,37 +22,102 @@ import HRVChart from "./components/HRVChart";
 import HeadPositionChart from "./components/HeadPositionChart";
 import CameraModule from "./components/CameraModule";
 import FatigueStatus from "./components/FatigueStatus";
-import DrowsinessIndicators from "./components/DrowsinessIndicators";
 import ThemeToggle from "./components/ThemeToggle";
 import VehicleDashboard from "./components/VehicleDashboard";
 import OwnerDashboard from "./components/OwnerDashboard";
+import ProfilePage from "./components/ProfilePage";
+import LandingPage from "./components/LandingPage";
 import { useFatigueData } from "./hooks/useFatigueData";
+import { LogOut } from "lucide-react";
+import "./components/Css/LandingPage.css";
 
 // Wrapper Component to access Context for Theme
-const StandardModelWithSwitcher = ({ selectedModel, setSelectedModel }) => {
+const StandardModelWithSwitcher = ({ setShowProfile, onExit }) => {
   return (
-    <DashboardContent selectedModel={selectedModel} setSelectedModel={setSelectedModel} />
+    <DashboardContent 
+      setShowProfile={setShowProfile}
+      onExit={onExit}
+    />
   );
 };
 
 // Vehicle Model Wrapper
-const VehicleModelWithSwitcher = ({ selectedModel, setSelectedModel }) => {
+const VehicleModelWithSwitcher = ({ setShowProfile, onExit }) => {
   return (
-    <VehicleDashboardWithHeader selectedModel={selectedModel} setSelectedModel={setSelectedModel} />
+    <VehicleDashboardWithHeader 
+      setShowProfile={setShowProfile}
+      onExit={onExit}
+    />
   );
 };
 
-const OwnerModelWithSwitcher = ({ selectedModel, setSelectedModel }) => {
+const OwnerModelWithSwitcher = ({ setShowProfile, onExit }) => {
   return (
-    <OwnerDashboardWithHeader selectedModel={selectedModel} setSelectedModel={setSelectedModel} />
+    <OwnerDashboardWithHeader 
+      setShowProfile={setShowProfile}
+      onExit={onExit}
+    />
+  );
+};
+
+// Common Header Content (Standalone Mode)
+const HeaderContent = ({ statusLabel, setShowProfile, onExit }) => {
+  const { userProfile } = useUserContext();
+  
+  return (
+    <>
+      <div className="brand">
+        <div className="brand-logo">
+          <BrainCircuit size={20} />
+        </div>
+        <span className="brand-name">FatigueGuard Pro</span>
+      </div>
+      
+      <div className="header-actions">
+        <div className="status-badge">
+          <span className="live-dot"></span>
+          {statusLabel}
+        </div>
+        
+        <ThemeToggle />
+
+        <button 
+          onClick={onExit}
+          className="exit-btn"
+          title="Return to Menu"
+        >
+          <LogOut size={16} />
+          <span>Exit Module</span>
+        </button>
+        
+        <button 
+          onClick={() => setShowProfile(true)}
+          className="user-profile-btn"
+          title={`Profile Settings: ${userProfile.name}`}
+          style={{
+            width: 32, 
+            height: 32, 
+            borderRadius: '50%', 
+            background: '#e2e8f0', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            border: 'none',
+            cursor: 'pointer',
+            padding: 0
+          }}
+        >
+          <User size={16} color="#64748b" />
+        </button>
+      </div>
+    </>
   );
 };
 
 // Vehicle Dashboard with Header
-const VehicleDashboardWithHeader = ({ selectedModel, setSelectedModel }) => {
+const VehicleDashboardWithHeader = ({ setShowProfile, onExit }) => {
   const { vehicleData } = useVehicleContext();
   
-  // Determine Theme Class based on vehicle prediction
   const predictedStatus = vehicleData?.prediction?.status || "Unknown";
   const themeClass = 
     predictedStatus === "Fatigued" ? "theme-danger" : 
@@ -60,49 +126,11 @@ const VehicleDashboardWithHeader = ({ selectedModel, setSelectedModel }) => {
   return (
     <div className={`dashboard-container ${themeClass}`}>
       <header className="top-header">
-        <div className="brand">
-          <div className="brand-logo">
-            <BrainCircuit size={20} />
-          </div>
-          <span className="brand-name">FatigueGuard Pro</span>
-        </div>
-        
-        <div className="header-actions">
-          <div className="model-switcher">
-            <button
-              onClick={() => setSelectedModel("standard")}
-              className={`model-btn ${selectedModel === "standard" ? "model-btn-active" : ""}`}
-            >
-              <span className="model-icon">🧠</span>
-              <span className="model-text">Standard Model</span>
-            </button>
-            <button
-              onClick={() => setSelectedModel("vehicle")}
-              className={`model-btn ${selectedModel === "vehicle" ? "model-btn-active" : ""}`}
-            >
-              <span className="model-icon">🚗</span>
-              <span className="model-text">Vehicle Model</span>
-            </button>
-            <button
-              onClick={() => setSelectedModel("owner")}
-              className={`model-btn ${selectedModel === "owner" ? "model-btn-active" : ""}`}
-            >
-              <span className="model-icon">👤</span>
-              <span className="model-text">Owner App</span>
-            </button>
-          </div>
-
-          <div className="status-badge">
-            <span className="live-dot"></span>
-            System Active
-          </div>
-          
-          <ThemeToggle />
-          
-          <div className="user-profile" style={{width: 32, height: 32, borderRadius: '50%', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
-            <User size={16} color="#64748b" />
-          </div>
-        </div>
+        <HeaderContent 
+          statusLabel="Vehicle Engine Active"
+          setShowProfile={setShowProfile}
+          onExit={onExit}
+        />
       </header>
 
       <main className="dashboard-content vehicle-content">
@@ -112,7 +140,7 @@ const VehicleDashboardWithHeader = ({ selectedModel, setSelectedModel }) => {
   );
 };
 
-const OwnerDashboardWithHeader = ({ selectedModel, setSelectedModel }) => {
+const OwnerDashboardWithHeader = ({ setShowProfile, onExit }) => {
   const { ml_fatigue_status } = useFatigueData();
 
   const themeClass =
@@ -122,49 +150,11 @@ const OwnerDashboardWithHeader = ({ selectedModel, setSelectedModel }) => {
   return (
     <div className={`dashboard-container ${themeClass}`}>
       <header className="top-header">
-        <div className="brand">
-          <div className="brand-logo">
-            <BrainCircuit size={20} />
-          </div>
-          <span className="brand-name">FatigueGuard Pro</span>
-        </div>
-
-        <div className="header-actions">
-          <div className="model-switcher">
-            <button
-              onClick={() => setSelectedModel("standard")}
-              className={`model-btn ${selectedModel === "standard" ? "model-btn-active" : ""}`}
-            >
-              <span className="model-icon">🧠</span>
-              <span className="model-text">Standard Model</span>
-            </button>
-            <button
-              onClick={() => setSelectedModel("vehicle")}
-              className={`model-btn ${selectedModel === "vehicle" ? "model-btn-active" : ""}`}
-            >
-              <span className="model-icon">🚗</span>
-              <span className="model-text">Vehicle Model</span>
-            </button>
-            <button
-              onClick={() => setSelectedModel("owner")}
-              className={`model-btn ${selectedModel === "owner" ? "model-btn-active" : ""}`}
-            >
-              <span className="model-icon">👤</span>
-              <span className="model-text">Owner App</span>
-            </button>
-          </div>
-
-          <div className="status-badge">
-            <span className="live-dot"></span>
-            Owner View Active
-          </div>
-
-          <ThemeToggle />
-
-          <div className="user-profile" style={{width: 32, height: 32, borderRadius: '50%', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
-            <User size={16} color="#64748b" />
-          </div>
-        </div>
+        <HeaderContent 
+          statusLabel="Fleet Command Center"
+          setShowProfile={setShowProfile}
+          onExit={onExit}
+        />
       </header>
 
       <main className="dashboard-content owner-content" style={{ padding: 16 }}>
@@ -175,77 +165,26 @@ const OwnerDashboardWithHeader = ({ selectedModel, setSelectedModel }) => {
 };
 
 // Wrapper Component to access Context for Theme
-const DashboardContent = ({ selectedModel, setSelectedModel }) => {
+const DashboardContent = ({ setShowProfile, onExit }) => {
   const { ml_fatigue_status } = useFatigueData(); 
   
-  // Determine Theme Class
   const themeClass = 
     ml_fatigue_status === "Fatigued" ? "theme-danger" : 
     (ml_fatigue_status === "Drowsy" ? "theme-warning" : "theme-safe");
 
   return (
     <div className={`dashboard-container ${themeClass}`}>
-      {/* Top Header (Fixed Height) */}
       <header className="top-header">
-        <div className="brand">
-          <div className="brand-logo">
-            <BrainCircuit size={20} />
-          </div>
-          <span className="brand-name">FatigueGuard Pro</span>
-        </div>
-        
-        <div className="header-actions">
-          <div className="model-switcher">
-            <button
-              onClick={() => setSelectedModel("standard")}
-              className={`model-btn ${selectedModel === "standard" ? "model-btn-active" : ""}`}
-            >
-              <span className="model-icon">🧠</span>
-              <span className="model-text">Standard Model</span>
-            </button>
-            <button
-              onClick={() => setSelectedModel("vehicle")}
-              className={`model-btn ${selectedModel === "vehicle" ? "model-btn-active" : ""}`}
-            >
-              <span className="model-icon">🚗</span>
-              <span className="model-text">Vehicle Model</span>
-            </button>
-            <button
-              onClick={() => setSelectedModel("owner")}
-              className={`model-btn ${selectedModel === "owner" ? "model-btn-active" : ""}`}
-            >
-              <span className="model-icon">👤</span>
-              <span className="model-text">Owner App</span>
-            </button>
-          </div>
-
-           {/* Moved Indicator Here as requested */}
-           <div style={{marginRight: '12px'}}>
-              <DrowsinessIndicators />
-           </div>
-
-          <div className="status-badge">
-            <span className="live-dot"></span>
-            System Active
-          </div>
-          
-          <ThemeToggle />
-          
-          <div className="user-profile" style={{width: 32, height: 32, borderRadius: '50%', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
-            <User size={16} color="#64748b" />
-          </div>
-        </div>
+        <HeaderContent 
+          statusLabel="Standard AI Monitor"
+          setShowProfile={setShowProfile}
+          onExit={onExit}
+        />
       </header>
 
-      {/* Main Content (Fills remaining height) */}
       <main className="dashboard-content">
-        
         <div className="grid-container">
-          
-          {/* Left Column: Data Charts */}
           <section className="charts-section">
-            
-            {/* Row 1: Vitals (Heart Rate & Temp) */}
             <div className="charts-row-1">
               <div className="card">
                 <div className="card-header">
@@ -266,7 +205,6 @@ const DashboardContent = ({ selectedModel, setSelectedModel }) => {
               </div>
             </div>
 
-            {/* Row 2: Secondary Metrics (HRV & Head) */}
             <div className="charts-row-2">
                <div className="card">
                   <div className="card-header">
@@ -286,27 +224,20 @@ const DashboardContent = ({ selectedModel, setSelectedModel }) => {
                   </div>
                </div>
             </div>
-
           </section>
 
-          {/* Right Column: Status & Camera */}
           <aside className="side-panel">
-            
-            {/* Live Camera Feed (Now Top) */}
             <div className="card camera-card">
               <CameraModule />
             </div>
 
-            {/* Fatigue Status Widget (Now Bottom) */}
             <div className="card fatigue-card">
                <div className="card-header">
                   <span className="card-title"><BrainCircuit size={18} className="card-icon"/> Fatigue Status</span>
                </div>
                <FatigueStatus />
             </div>
-
           </aside>
-
         </div>
       </main>
     </div>
@@ -315,40 +246,57 @@ const DashboardContent = ({ selectedModel, setSelectedModel }) => {
 
 function App() {
   const [mounted, setMounted] = useState(false);
-  const [selectedModel, setSelectedModel] = useState("standard"); // "standard" or "vehicle" or "owner"
+  const [selectedModel, setSelectedModel] = useState(null); // null means show selection screen
+  const [showProfile, setShowProfile] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
+  const handleSelectMode = (mode) => {
+    setSelectedModel(mode);
+    setShowProfile(false);
+  };
+
+  const handleExit = () => {
+    setSelectedModel(null);
+    setShowProfile(false);
+  };
+
   if (!mounted) return null;
 
   return (
     <ThemeProvider>
-      <ModeProvider selectedMode={selectedModel === "owner" ? "standard" : selectedModel}>
-        {selectedModel === "vehicle" ? (
-          <VehicleProvider autoResetCalibration>
-            <VehicleModelWithSwitcher
-              selectedModel={selectedModel}
-              setSelectedModel={setSelectedModel}
-            />
-          </VehicleProvider>
-        ) : selectedModel === "owner" ? (
-          <VehicleProvider>
-            <OwnerModelWithSwitcher
-              selectedModel={selectedModel}
-              setSelectedModel={setSelectedModel}
-            />
-          </VehicleProvider>
-        ) : (
-          <FatigueProvider>
-            <StandardModelWithSwitcher
-              selectedModel={selectedModel}
-              setSelectedModel={setSelectedModel}
-            />
-          </FatigueProvider>
-        )}
-      </ModeProvider>
+      <UserProvider>
+        <ModeProvider selectedMode={selectedModel === "owner" ? "standard" : (selectedModel || "standard")}>
+          {showProfile ? (
+            <ProfilePage onBack={() => setShowProfile(false)} />
+          ) : selectedModel === null ? (
+            <LandingPage onSelectMode={handleSelectMode} />
+          ) : selectedModel === "vehicle" ? (
+            <VehicleProvider autoResetCalibration>
+              <VehicleModelWithSwitcher
+                setShowProfile={setShowProfile}
+                onExit={handleExit}
+              />
+            </VehicleProvider>
+          ) : selectedModel === "owner" ? (
+            <VehicleProvider>
+              <OwnerModelWithSwitcher
+                setShowProfile={setShowProfile}
+                onExit={handleExit}
+              />
+            </VehicleProvider>
+          ) : (
+            <FatigueProvider>
+              <StandardModelWithSwitcher
+                setShowProfile={setShowProfile}
+                onExit={handleExit}
+              />
+            </FatigueProvider>
+          )}
+        </ModeProvider>
+      </UserProvider>
     </ThemeProvider>
   );
 };
