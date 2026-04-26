@@ -1,11 +1,14 @@
 import React from "react";
-import { BrainCircuit, Car, ShieldCheck, Settings, ArrowRight } from "lucide-react";
+import { BrainCircuit, Car, ShieldCheck, Settings, ArrowRight, UserCheck } from "lucide-react";
+import { useUserContext } from "../context/UserContext";
 import "./Css/LandingPage.css";
 
 export default function LandingPage({ onSelectMode }) {
+  const { userProfile } = useUserContext();
+
   return (
     <div className="landing-container">
-      <div className="landing-header" style={{ textAlign: 'center', marginBottom: '48px' }}>
+      <div className="landing-header" style={{ textAlign: 'center', marginBottom: '40px' }}>
         <div style={{ 
           background: 'rgba(59, 130, 246, 0.1)', 
           width: '72px', 
@@ -19,10 +22,15 @@ export default function LandingPage({ onSelectMode }) {
         }}>
           <BrainCircuit size={36} color="#60a5fa" />
         </div>
-        <h1 style={{ fontSize: '3rem', fontWeight: '900', marginBottom: '12px', letterSpacing: '-0.03em' }}>FatigueGuard AI</h1>
-        <p style={{ color: '#94a3b8', fontSize: '1.15rem', maxWidth: '550px', lineHeight: '1.6' }}>
-          Welcome to the next generation of fatigue monitoring. 
-          Choose a standalone module to initialize the security protocols.
+        <h1 style={{ fontSize: '3rem', fontWeight: '900', marginBottom: '8px', letterSpacing: '-0.03em' }}>FatigueGuard AI</h1>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '20px' }}>
+           <div style={{ padding: '4px 12px', background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', borderRadius: '999px', fontSize: '0.75rem', fontWeight: '700', border: '1px solid rgba(16, 185, 129, 0.2)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+             <UserCheck size={12} /> ACTIVE PROFILE: {userProfile.name} ({userProfile.company})
+           </div>
+        </div>
+        <p style={{ color: '#94a3b8', fontSize: '1.1rem', maxWidth: '550px', lineHeight: '1.6' }}>
+          Next-generation fatigue monitoring for enterprise fleets. 
+          Choose a standalone module to initialize security protocols.
         </p>
       </div>
 

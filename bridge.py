@@ -12,6 +12,9 @@ BAUD_RATE = 115200
 # YOUR HUGGING FACE SPACE URL
 HF_API_URL = "https://jerryjr1705-fatiguepred.hf.space/api/sensor_data/ingest"
 
+# UNIQUE IDENTIFIER FOR THIS VEHICLE (Sync this with your Owner App)
+VEHICLE_ID = "TRUCK-770-PRO" 
+
 def find_arduino():
     ports = list(serial.tools.list_ports.comports())
     for p in ports:
@@ -48,11 +51,11 @@ def run_bridge():
                 
                 try:
                     # POST to Hugging Face
-                    resp = requests.post(
-                        HF_API_URL, 
-                        json={"raw_sensor_data": line},
-                        timeout=3
-                    )
+                    payload = {
+                        "raw_sensor_data": line,
+                        "vehicle_id": VEHICLE_ID
+                    }
+                    resp = requests.post(HF_API_URL, json=payload, timeout=3)
                     if resp.status_code == 200:
                         success_count += 1
                         print(f"📤 Sync OK ({success_count})")

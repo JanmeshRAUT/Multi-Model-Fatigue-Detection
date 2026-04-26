@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { API_BASE } from '../api';
+import { useUserContext } from './UserContext';
 
 const FatigueContext = createContext();
 
@@ -8,6 +9,7 @@ export const useFatigueContext = () => {
 };
 
 export const FatigueProvider = ({ children }) => {
+    const { userProfile } = useUserContext();
     // ---------------- STATE ----------------
     // Centralized state for ALL components
     const [fullData, setFullData] = useState(null);
@@ -58,8 +60,10 @@ export const FatigueProvider = ({ children }) => {
 
         const fetchData = async () => {
             try {
-                const url = `${API_BASE}/api/combined_data`;
-                console.log(`[FatigueContext] 📡 Polling: ${url}`);
+                // PASS VEHICLE ID TO BACKEND
+                const vid = userProfile.vehicleId || "DEFAULT-TRUCK";
+                const url = `${API_BASE}/api/combined_data?vehicle_id=${vid}`;
+                console.log(`[FatigueContext] 📡 Polling (${vid}): ${url}`);
                 
                 const response = await fetch(url, {
                     method: 'GET',
