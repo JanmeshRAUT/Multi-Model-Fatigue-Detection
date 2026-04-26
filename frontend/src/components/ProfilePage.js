@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { User, Truck, Car, Save, ArrowLeft, Building2, BadgeCheck } from "lucide-react";
+import { User, Truck, Car, Save, ArrowLeft, ArrowRight, Building2, BadgeCheck } from "lucide-react";
 import { useUserContext } from "../context/UserContext";
 import "./Css/OwnerDashboard.css"; // Reuse existing owner styles for consistency
 
@@ -7,6 +7,12 @@ export default function ProfilePage({ onBack }) {
   const { userProfile, updateProfile } = useUserContext();
   const [formData, setFormData] = useState({ ...userProfile });
   const [saveStatus, setSaveStatus] = useState(null);
+
+  const handleSave = () => {
+    updateProfile(formData);
+    setSaveStatus("Profile Updated Successfully!");
+    setTimeout(() => setSaveStatus(null), 3000);
+  };
 
   const handleSaveAndLaunch = () => {
     updateProfile(formData);
