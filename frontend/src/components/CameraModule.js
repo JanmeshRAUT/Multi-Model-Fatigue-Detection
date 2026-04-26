@@ -45,7 +45,7 @@ export default function CameraModule({ vehicleOverlayMode = "none" }) {
         // Use the vehicle websocket path when Vehicle mode is active.
         const wsPath = mode?.isVehicleMode ? '/ws/vehicle/detect' : '/ws/detect';
         const wsUrl = API_BASE.replace(/^http/, 'ws') + wsPath;
-        console.log("Connecting to WS:", wsUrl);
+        console.log("[CameraModule] 🔌 Connecting to WebSocket:", wsUrl);
         
         const socket = new WebSocket(wsUrl);
         wsRef.current = socket;
