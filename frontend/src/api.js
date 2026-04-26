@@ -60,13 +60,25 @@ export const resetVehicleCalibration = async () => {
 };
 
 /**
- * Direct Prediction via Hugging Face Inference API
- * @param {Object} features - The 10 features (EAR, MAR, etc.)
+ * Prediction via Hugging Face Space (FastAPI) or Inference API
+ * @param {Object} features - The features (EAR, MAR, etc.)
  * @param {string} mode - "standard" or "vehicle"
  */
 export const getFatiguePrediction = async (features, mode = "standard") => {
+    // 1. Try the Space API first (if it's our primary backend)
+    try {
+        const response = await api.post('/predict', {
+            mode: mode,
+            ...features
+        });
+        return response.data;
+    } catch (error) {
+        console.warn("Space API Prediction failed, trying Inference API...", error);
+    }
+
+    // 2. Fallback to Inference API if token is available
     if (!HF_TOKEN) {
-        console.error("HF_TOKEN is missing in environment variables!");
+        console.error("HF_TOKEN is missing, cannot use Inference API fallback.");
         return null;
     }
 
@@ -86,7 +98,7 @@ export const getFatiguePrediction = async (features, mode = "standard") => {
         );
         return response.data;
     } catch (error) {
-        console.error("Hugging Face Prediction Error:", error);
+        console.error("All Prediction Methods Failed:", error);
         return null;
     }
 };
